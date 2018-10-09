@@ -1,0 +1,23 @@
+# start source definition      
+mono energy = 6
+spectrum = ./spectra/var_6MV.spectrum
+charge = 0
+beamlet edges = -26.00000  22.75000  22.75000 -26.00000  22.25000  22.75000 -26.00000  22.25000  22.25000
+virtual point source position = -76.00000  24.00000  24.00000
+# end source definition
+                              
+# start MC control          
+ncase  = 5000
+nbatch = 10
+rng seeds = 24442  27174
+# stop MC control           
+                              
+# start geometry
+method of input = phantom
+phantom file = ./phantoms/h2o_phantom.egsphant
+# stop geometry         
+                              
+# start MC transport
+photon xsection = ./data/xcom
+pegs file = ./pegs4/521icru.pegs4dat      
+# stop MC transport
