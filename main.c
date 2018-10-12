@@ -198,6 +198,8 @@ void cleanPair(void);
 
 /******************************************************************************/
 /* Electron data definition */
+#define XIMAX 0.5
+#define ESTEPE 0.25
 
 struct Electron {
     double *esig0;
@@ -239,7 +241,7 @@ struct Electron {
     double *q2cp_ms0;
     double *q2cp_ms1;
     
-    double *range_eq;
+    double *range_ep;
     double *e_array;
     
     double *eke0;
@@ -300,7 +302,7 @@ struct Spin {
 
 struct Spin spin;
 
-void initElectronData(void);
+void initMscatData(void);
 void cleanElectron(void);
 void readRutherfordMscat(int nmed);
 void cleanMscat(void);
@@ -647,8 +649,8 @@ void initMediaData(){
     initRayleighData();
     initPairData();
     
-    /* Initialize data needed for electron interactions */
-    initElectronData();
+    /* Initialize data needed for electron multi-scattering interactions */
+    initMscatData();
     
     /* Cleaning */
     free(media_found);
@@ -735,14 +737,14 @@ int readPegsFile(int *media_found) {
             /* see whether this is required medium comparing with the medium
              list */
             int required = 0;
-            int nmedium = 0; // medium index
+            int imed = 0; // medium index
             
             for (int i = 0; i < geometry.nmed; i++) {
                 char cname[20];
                 strncpy(cname, geometry.med_names[i], 20);
                 if (strcmp(name, cname) == 0) {
                     required = 1;
-                    nmedium = i;
+                    imed = i;
                     break;
                 }
             }
@@ -751,8 +753,8 @@ int readPegsFile(int *media_found) {
             }
             
             /* We have found the i'th required medium */
-            strncpy(pegs_data.names[nmedium], name, 60);
-            pegs_data.ne[nmedium] = 0;
+            strncpy(pegs_data.names[imed], name, 60);
+            pegs_data.ne[imed] = 0;
             
             /* Read the next line containing the density, number of elements
              and flags */
@@ -811,7 +813,7 @@ int readPegsFile(int *media_found) {
                         ok = 0;
                         break;
                     }
-                    pegs_data.rho[nmedium] = d;
+                    pegs_data.rho[imed] = d;
                 }
                 else if (strcmp(name3, "NE") == 0) {
                     int u;
@@ -819,7 +821,7 @@ int readPegsFile(int *media_found) {
                         ok = 0;
                         break;
                     }
-                    pegs_data.ne[nmedium] = u;
+                    pegs_data.ne[imed] = u;
                 }
                 else if (strcmp(name3, "IUNRST") == 0) {
                     int i;
@@ -827,7 +829,7 @@ int readPegsFile(int *media_found) {
                         ok = 0;
                         break;
                     }
-                    pegs_data.iunrst[nmedium] = i;
+                    pegs_data.iunrst[imed] = i;
                 }
                 else if (strcmp(name3, "EPSTFL") == 0) {
                     int i;
@@ -835,7 +837,7 @@ int readPegsFile(int *media_found) {
                         ok = 0;
                         break;
                     }
-                    pegs_data.epstfl[nmedium] = i;
+                    pegs_data.epstfl[imed] = i;
                 }
                 else if (strcmp(name3, "IAPRIM") == 0) {
                     int i;
@@ -843,7 +845,7 @@ int readPegsFile(int *media_found) {
                         ok = 0;
                         break;
                     }
-                    pegs_data.iaprim[nmedium] = i;
+                    pegs_data.iaprim[imed] = i;
                 }
                 token = strtok_r(NULL, ",", &temp);
                 i++;
@@ -853,7 +855,7 @@ int readPegsFile(int *media_found) {
             } // end of 2nd line readings
             
             /* Read elements, same algorithm */
-            for (int m = 0; m < pegs_data.ne[nmedium]; m++) {
+            for (int m = 0; m < pegs_data.ne[imed]; m++) {
                 struct Element element = { 0 };
                 fgets(buffer, 80, fp);
                 char s[100];
@@ -953,7 +955,7 @@ int readPegsFile(int *media_found) {
                     break;
                 }
                 
-                pegs_data.elements[nmedium][m] = element;
+                pegs_data.elements[imed][m] = element;
             }
             
             if (ok == 0) {
@@ -966,26 +968,26 @@ int readPegsFile(int *media_found) {
             /* The format specifier '%lf' is needed to correctly recognize
              engineering notation. I do not now if this is a property of
              clang, because I had not to do that before */
-            if (sscanf(buffer, "%lf %lf %lf %lf %lf\n", &pegs_data.rlc[nmedium],
-                       &pegs_data.ae[nmedium], &pegs_data.ap[nmedium],
-                       &pegs_data.ue[nmedium], &pegs_data.up[nmedium]) != 5) {
+            if (sscanf(buffer, "%lf %lf %lf %lf %lf\n", &pegs_data.rlc[imed],
+                       &pegs_data.ae[imed], &pegs_data.ap[imed],
+                       &pegs_data.ue[imed], &pegs_data.up[imed]) != 5) {
                 continue;
             }
-            pegs_data.te[nmedium] = pegs_data.ae[nmedium] - RM;
-            pegs_data.thmoll[nmedium] = (pegs_data.te[nmedium]) * 2 + RM;
+            pegs_data.te[imed] = pegs_data.ae[imed] - RM;
+            pegs_data.thmoll[imed] = (pegs_data.te[imed]) * 2 + RM;
             
             /* Save the medium and mark it found */
             fgets(buffer, 80, fp);
             if (sscanf(buffer, "%d %d %d %d %d %d %d\n",
-                       &pegs_data.msge[nmedium], &pegs_data.mge[nmedium],
-                       &pegs_data.mseke[nmedium], &pegs_data.meke[nmedium],
-                       &pegs_data.mleke[nmedium], &pegs_data.mcmfp[nmedium],
-                       &pegs_data.mrange[nmedium]) != 7) {
+                       &pegs_data.msge[imed], &pegs_data.mge[imed],
+                       &pegs_data.mseke[imed], &pegs_data.meke[imed],
+                       &pegs_data.mleke[imed], &pegs_data.mcmfp[imed],
+                       &pegs_data.mrange[imed]) != 7) {
                 continue;
             }
-            if (pegs_data.meke[nmedium]>MXEKE) {
+            if (pegs_data.meke[imed]>MXEKE) {
                 printf("Medium %d has MEKE too big, change MXEKE to %d in "
-                       "source code", nmedium, pegs_data.meke[nmedium]);
+                       "source code", imed, pegs_data.meke[imed]);
                 continue;
             }
             
@@ -1002,54 +1004,54 @@ int readPegsFile(int *media_found) {
              of pair production */
             double dl6, ALPHI1, BPAR1, DELPOS1, ALPHI2, BPAR2, DELPOS2, XR0, TEFF0;
             fscanf(fp, "%lf ", &dl6);
-            fscanf(fp, "%lf %lf %lf %lf %lf ", &pegs_data.delcm[nmedium], &ALPHI1,
+            fscanf(fp, "%lf %lf %lf %lf %lf ", &pegs_data.delcm[imed], &ALPHI1,
                    &ALPHI2, &BPAR1, &BPAR2);
             fscanf(fp, "%lf %lf ", &DELPOS1, &DELPOS2);
-            fscanf(fp, "%lf %lf %lf %lf ", &XR0, &TEFF0, &electron.blcc[nmedium],
-                   &electron.xcc[nmedium]);
-            fscanf(fp, "%lf %lf ", &electron.eke0[nmedium],
-                   &electron.eke1[nmedium]);
+            fscanf(fp, "%lf %lf %lf %lf ", &XR0, &TEFF0, &electron.blcc[imed],
+                   &electron.xcc[imed]);
+            fscanf(fp, "%lf %lf ", &electron.eke0[imed],
+                   &electron.eke1[imed]);
             
-            int neke = pegs_data.meke[nmedium];
+            int neke = pegs_data.meke[imed];
             for (int k = 0; k<neke; k++) {
                 fscanf(fp, "%lf %lf %lf %lf %lf %lf %lf %lf ",
-                       &electron.esig0[nmedium*MXEKE + k],
-                       &electron.esig1[nmedium*MXEKE + k],
-                       &electron.psig0[nmedium*MXEKE + k],
-                       &electron.psig1[nmedium*MXEKE + k],
-                       &electron.ededx0[nmedium*MXEKE + k],
-                       &electron.ededx1[nmedium*MXEKE + k],
-                       &electron.pdedx0[nmedium*MXEKE + k],
-                       &electron.pdedx1[nmedium*MXEKE + k]);
+                       &electron.esig0[imed*MXEKE + k],
+                       &electron.esig1[imed*MXEKE + k],
+                       &electron.psig0[imed*MXEKE + k],
+                       &electron.psig1[imed*MXEKE + k],
+                       &electron.ededx0[imed*MXEKE + k],
+                       &electron.ededx1[imed*MXEKE + k],
+                       &electron.pdedx0[imed*MXEKE + k],
+                       &electron.pdedx1[imed*MXEKE + k]);
                 
                 fscanf(fp, "%lf %lf %lf %lf %lf %lf %lf %lf ",
-                       &electron.ebr10[nmedium*MXEKE + k],
-                       &electron.ebr11[nmedium*MXEKE + k],
-                       &electron.pbr10[nmedium*MXEKE + k],
-                       &electron.pbr11[nmedium*MXEKE + k],
-                       &electron.pbr20[nmedium*MXEKE + k],
-                       &electron.pbr21[nmedium*MXEKE + k],
-                       &electron.tmxs0[nmedium*MXEKE + k],
-                       &electron.tmxs1[nmedium*MXEKE + k]);
+                       &electron.ebr10[imed*MXEKE + k],
+                       &electron.ebr11[imed*MXEKE + k],
+                       &electron.pbr10[imed*MXEKE + k],
+                       &electron.pbr11[imed*MXEKE + k],
+                       &electron.pbr20[imed*MXEKE + k],
+                       &electron.pbr21[imed*MXEKE + k],
+                       &electron.tmxs0[imed*MXEKE + k],
+                       &electron.tmxs1[imed*MXEKE + k]);
             }
             
             /* length units, only for cm */
-            double DFACTI = 1.0 / (pegs_data.rlc[nmedium]);
-            electron.blcc[nmedium] *= DFACTI;
+            double DFACTI = 1.0 / (pegs_data.rlc[imed]);
+            electron.blcc[imed] *= DFACTI;
             for (int k = 0; k<neke; k++) {
-                electron.esig0[nmedium*MXEKE + k] *= DFACTI;
-                electron.psig0[nmedium*MXEKE + k] *= DFACTI;
-                electron.ededx0[nmedium*MXEKE + k] *= DFACTI;
-                electron.pdedx0[nmedium*MXEKE + k] *= DFACTI;
-                electron.pdedx1[nmedium*MXEKE + k] *= DFACTI;
-                electron.esig1[nmedium*MXEKE + k] *= DFACTI;
-                electron.psig1[nmedium*MXEKE + k] *= DFACTI;
-                electron.ededx1[nmedium*MXEKE + k] *= DFACTI;
+                electron.esig0[imed*MXEKE + k] *= DFACTI;
+                electron.psig0[imed*MXEKE + k] *= DFACTI;
+                electron.ededx0[imed*MXEKE + k] *= DFACTI;
+                electron.pdedx0[imed*MXEKE + k] *= DFACTI;
+                electron.pdedx1[imed*MXEKE + k] *= DFACTI;
+                electron.esig1[imed*MXEKE + k] *= DFACTI;
+                electron.psig1[imed*MXEKE + k] *= DFACTI;
+                electron.ededx1[imed*MXEKE + k] *= DFACTI;
             }
-            electron.xcc[nmedium] *= sqrt(DFACTI);
+            electron.xcc[imed] *= sqrt(DFACTI);
             
             /* Mark the medium found */
-            media_found[nmedium] = 1;
+            media_found[imed] = 1;
             nmedia++;
         }
     } while ((nmedia < geometry.nmed) && !feof(fp));
@@ -2168,26 +2170,263 @@ void cleanPair() {
     return;
 }
 
-void initElectronData() {
+void initMscatData() {
     
-    double temp, eil = 0, ei = 0, sig, sige_old, sigp_old;
-    int leil;
-    int ise_monoton = 1, isp_monoton = 1;   // i.e., both true by default.
+    int nmed = geometry.nmed;
     
-    readRutherfordMscat(geometry.nmed);
+    readRutherfordMscat(nmed);
     
-    int neke;
     
-    for (int i=0; i<geometry.nmed; i++) {
+    for (int imed=0; imed<nmed; imed++) {
         /* Absorb Euler constant into the multiple scattering parameter */
-        electron.blcc[i] = 1.16699413758864573*electron.blcc[i];
+        electron.blcc[imed] = 1.16699413758864573*electron.blcc[imed];
         
         /* Take its square as this is employed throughout */
-        electron.xcc[i] = pow(electron.xcc[i], 2);
+        electron.xcc[imed] = pow(electron.xcc[imed], 2);
     }
     
     /* Initialize data for spin effects */
-    initSpinData(geometry.nmed);
+    initSpinData(nmed);
+    
+    /* Determine maximum cross-section per energy loss for every medium */
+    double esige_max = 0.0;
+    double psige_max = 0.0;
+    double sigee, sigep, sige_old, sigp_old, p2, beta2, chi_a2, si, sip1;
+    double ei, eil, ededx, dedx0, sig, eip1, eke, elke, ekef, elkef,
+        aux, estepx, eip1l, elktmp, ektmp;
+    int neke, ise_monoton, isp_monoton, leil, lelke, lelkef, leip1l, lelktmp;
+    
+    /* Allocate memory for electron data */
+    electron.sig_ismonotone = malloc(2*nmed*sizeof(int));
+    electron.esig_e = malloc(nmed*sizeof(double));
+    electron.psig_e = malloc(nmed*sizeof(double));
+    electron.e_array = malloc(nmed*MXEKE*sizeof(double));
+    electron.range_ep = malloc(2*nmed*MXEKE*sizeof(double));
+    electron.expeke1 = malloc(nmed*sizeof(double));
+
+    for (int imed=0; imed<nmed; imed++) {
+        sigee = 1.0E-15;
+        sigep = 1.0E-15;
+        neke = pegs_data.meke[imed]; /* Number of elements in storage array */
+        
+        /* The following are boolean variables, both true by default */
+        ise_monoton = 1;
+        isp_monoton = 1;
+        
+        sige_old = -1.0;
+        sigp_old = -1.0;
+        
+        for (int i=1; i<=neke; i++) {
+            ei   = exp(((double)i - electron.eke0[imed])/electron.eke1[imed]);
+            eil  = log(ei);
+            leil = i - 1; /* Consider C indexing */
+            
+            ededx = electron.ededx1[imed*MXEKE + leil]*eil +
+                electron.ededx0[imed*MXEKE + leil];
+            sig = electron.esig1[imed*MXEKE + leil]*eil +
+                electron.esig0[imed*MXEKE + leil];
+            
+            sig /= ededx;
+            if (sig > sigee) {
+                sigee = sig;
+            }
+            if (sig < sige_old) {
+                ise_monoton = 0; /* i.e. false */
+            }
+            sige_old = sig;
+            
+            ededx = electron.pdedx1[imed*MXEKE + leil]*eil +
+                electron.pdedx0[imed*MXEKE + leil];
+            sig = electron.psig1[imed*MXEKE + leil]*eil +
+                electron.psig0[imed*MXEKE + leil];
+            
+            sig /= ededx;
+            if (sig>sigep) {
+                sigep = sig;
+            }
+            if (sig<sigp_old) {
+                isp_monoton = 0; /* i.e. false */
+            }
+            sigp_old = sig;
+
+        }
+        electron.sig_ismonotone[0*nmed + imed] = ise_monoton;
+        electron.sig_ismonotone[1*nmed + imed] = isp_monoton;
+        electron.esig_e[imed] = sigee;
+        electron.psig_e[imed] = sigep;
+        
+        if (sigee > esige_max) {
+            esige_max = sigee;
+        }
+        if (sigep > psige_max) {
+            psige_max = sigep;
+        }
+    }
+    
+    /* Determine upper limit in step size for multiple scattering */
+    for (int imed=0; imed<nmed; imed++) {
+        /* Calculate range arrays first */
+        
+        /* Energy of first table entry */
+        ei = exp((1.0 - electron.eke0[imed])/electron.eke1[imed]);
+        eil = log(ei);
+        leil = 0;
+        electron.e_array[imed*MXEKE] = ei;
+        electron.expeke1[imed] = exp(1.0/electron.eke1[imed]) - 1.0;
+        electron.range_ep[0*nmed*MXEKE + imed*MXEKE + 1] = 0.0;
+        electron.range_ep[1*nmed*MXEKE + imed*MXEKE + 1] = 0.0;
+        
+        neke = pegs_data.meke[imed]; /* number of elements in storage array */
+        for (int i=1; i<=neke-1; i++) {
+            /* Energy at i + 1*/
+            eip1 = exp(((double)(i + 1) -
+                        electron.eke0[imed])/electron.eke1[imed]);
+            electron.e_array[imed*MXEKE + i] = eip1;
+            
+            /* Calculate range. The following expressions result from the
+             logarithmic interpolation for the (restricted) stopping power
+             and a power series expansion of the integral */
+            eke = 0.5*(eip1 + ei);
+            elke = log(eke);
+            lelke = (int)(electron.eke1[imed]*elke + electron.eke0[imed]) -
+            1;
+            ededx = electron.pdedx1[imed*MXEKE + lelke]*elke +
+            electron.pdedx0[imed*MXEKE + lelke];
+            aux = electron.pdedx1[imed*MXEKE + i - 1]/ededx;
+            electron.range_ep[1*nmed*MXEKE + imed*MXEKE + i] =
+            electron.range_ep[1*nmed*MXEKE + imed*MXEKE + i - 1] /
+            ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                   pow(((eip1 - ei)/eke), 2.0)/24.0);
+            ededx = electron.ededx1[imed*MXEKE + lelke]*elke +
+            electron.ededx0[imed*MXEKE + lelke];
+            aux = electron.ededx1[imed*MXEKE + i - 1]/ededx;
+            electron.range_ep[0*nmed*MXEKE + imed*MXEKE + i] =
+            electron.range_ep[0*nmed*MXEKE + imed*MXEKE + i - 1] +
+            (eip1 - ei)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                               pow(((eip1 - ei)/eke), 2.0)/24.0);
+            ei = eip1;
+        }
+        
+        /* Now tmxs */
+        eil = (1.0 - electron.eke0[imed])/electron.eke1[imed];
+        ei  = exp(eil); leil = 1;
+        p2  = ei*(ei + 2.0*RM);
+        beta2 = p2/(p2 + pow(RM, 2.0));
+        chi_a2 = electron.xcc[imed]/(4.0*p2*electron.blcc[imed]);
+        dedx0 = electron.ededx1[imed*MXEKE + leil]*eil +
+        electron.ededx0[imed*MXEKE + leil];
+        estepx = 2.0*p2*beta2*dedx0/ei/electron.xcc[imed]/
+        (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
+        estepx *= XIMAX;
+        if (estepx > ESTEPE) {
+            estepx = ESTEPE;
+        }
+        si = estepx*ei/dedx0;
+        
+        for (int i=1; i<=neke - 1; i++){
+            elke = ((double)(i + 1) -
+                    electron.eke0[imed])/electron.eke1[imed];
+            eke  = exp(elke);
+            lelke = i;
+            
+            p2 = eke*(eke + 2.0*RM);
+            beta2 = p2/(p2 + pow(RM, 2.0));
+            chi_a2 = electron.xcc[imed]/(4.0*p2*electron.blcc[imed]);
+            ededx = electron.ededx1[imed*MXEKE + lelke]*elke +
+            electron.ededx0[imed*MXEKE + lelke];
+            estepx = 2.0*p2*beta2*ededx/eke/(electron.xcc[imed])/
+            (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
+            estepx = estepx*XIMAX;
+            
+            if (estepx > ESTEPE) {
+                estepx = ESTEPE;
+            }
+            ekef = (1.0 - estepx)*eke;
+            if (ekef <= electron.e_array[imed*MXEKE]) {
+                sip1 = (electron.e_array[imed*MXEKE] - ekef)/dedx0;
+                ekef = electron.e_array[imed*MXEKE];
+                elkef = (1.0 - electron.eke0[imed])/electron.eke1[imed];
+                lelkef = 0;
+            }
+            else{
+                elkef = log(ekef);
+                lelkef = electron.eke1[imed]*elkef +
+                electron.eke0[imed] - 1;
+                leip1l = lelkef + 1;
+                eip1l  = (leip1l -electron.eke0[imed])/electron.eke1[imed];
+                eip1   = electron.e_array[imed*MXEKE + leip1l];
+                aux    = (eip1 - ekef)/eip1;
+                elktmp = 0.5*(elkef+eip1l+0.25*aux*aux*(1+aux*(1+0.875*aux)));
+                ektmp  = 0.5*(ekef+eip1);
+                lelktmp = lelkef;
+                ededx = electron.ededx1[imed*MXEKE + lelktmp]*elktmp +
+                electron.ededx0[imed*MXEKE + lelktmp];
+                aux = electron.ededx1[imed*MXEKE + lelktmp];
+                sip1 = (eip1 - ekef)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                                            (pow(((eip1-ekef)/ektmp),2.0)/24.0));
+            }
+            
+            sip1 += electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke]
+            - electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke + 1];
+            
+            /* Now solve these equations
+             si   = tmxs1 * eil   + tmxs0
+             sip1 = tmxs1 * eip1l + tmxs0 */
+            electron.tmxs1[imed*MXEKE + i - 1] =
+            (sip1 - si)*electron.eke1[imed];
+            electron.tmxs0[imed*MXEKE + i - 1] = sip1 -
+            electron.tmxs1[imed*MXEKE + i - 1]*elke;
+            si  = sip1;
+        }
+        electron.tmxs0[imed*MXEKE + neke - 1] =
+        electron.tmxs0[imed*MXEKE + neke - 2];
+        electron.tmxs1[imed*MXEKE + neke - 1] =
+        electron.tmxs1[imed*MXEKE + neke - 2];
+    }
+    
+    /* Print information for debugging purposes */
+    if(verbose_flag) {
+        
+        printf("Listing electron data: \n");
+        for (int i=0; i<geometry.nmed; i++) {
+            printf("For medium %s: \n", geometry.med_names[i]);
+            
+            printf("esig_e = %f\n", electron.esig_e[i]);
+            printf("\n");
+            
+            printf("psig_e = %f\n", electron.psig_e[i]);
+            printf("\n");
+            
+            printf("expeke1 = %f\n", electron.expeke1[i]);
+            printf("\n");
+            
+            printf("sig_ismonotone = \n");
+            for (int j=0; j<2; j++) {
+                int idx = j*geometry.nmed + i;
+                printf("sig_ismonotone = %d\n", electron.sig_ismonotone[idx]);
+            }
+            printf("\n");
+            
+            
+            printf("e_array = \n");
+            for (int j=0; j<5; j++) { // print just 5 first values
+                int idx = MXEKE*i + j;
+                printf("e_array = %f\n", electron.e_array[idx]);
+            }
+            printf("\n");
+            
+            printf("range_ep0 = \n");
+            for (int k=0; k<2; k++) {
+                for (int j=0; j<5; j++) { // print just 5 first values
+                    int idx = k*nmed*MXEKE + i*MXEKE + j;
+                    printf("range_ep = %f\n", electron.range_ep[idx]);
+                }
+                printf("\n");
+            }
+            printf("\n");
+        }
+        
+    }
     
     return;
 }
@@ -2232,7 +2471,7 @@ void cleanElectron() {
     free(electron.q2ce_ms1);
     free(electron.q2cp_ms0);
     free(electron.q2cp_ms1);
-    free(electron.range_eq);
+    free(electron.range_ep);
     free(electron.tmxs0);
     free(electron.tmxs1);
     free(electron.xcc);
@@ -2820,7 +3059,7 @@ void initSpinData(int nmed) {
         si1e=1.0;
         
         for (int i=1; i<=neke - 1; i++){
-            eil = (i + 1 - electron.eke0[imed])/electron.eke1[imed];
+            eil = ((double)(i + 1) - electron.eke0[imed])/electron.eke1[imed];
             e = exp(eil);
             leil = i;
             tau = e/RM;
