@@ -76,6 +76,37 @@ void initPhantom(void);
 void cleanPhantom(void);
 
 /******************************************************************************/
+/* Source definition */
+#define MXEBIN 200      // number of energy bins of spectrum
+#define INVDIM 1000     // number of bins in inverse CDF
+
+struct Source {
+    int nmed;                   // number of media in phantom file
+    int spectrum;               // 0 : monoenergetic, 1 : spectrum
+    int charge;                 // 0 : photons, -1 : electron, +1 : positron
+    
+    /* For monoenergetic source */
+    double energy;
+    
+    /* For spectrum */
+    double deltak;              // number of elements in inverse CDF
+    double *cdfinv1;            // energy value of bin
+    double *cdfinv2;            // prob. that particle has energy xi
+    
+    /* Source shape information */
+    double ssd;                 // distance of point source to phantom surface
+    double xinl, xinu;          // lower and upper x-bounds of the field on
+                                // phantom surface
+    double yinl, yinu;          // lower and upper y-bounds of the field on
+                                // phantom surface
+    double xcoll, ycoll;        // x- and y-width of collimated field
+};
+struct Source source;
+
+void initSource(void);
+void cleanSource(void);
+
+/******************************************************************************/
 /* Media definition */
 #define RM 0.5109989461 // MeV * c^(-2)
 #define MXELEMENT 50    // maximum number of elements in a medium
@@ -405,6 +436,9 @@ int main (int argc, char **argv) {
     /* With number of media and media names initialize the medium data */
     initMediaData();
     
+    /* Initialize radiation source */
+    initSource();
+    
     /* Cleaning */
     cleanPhantom();
     cleanPhoton();
@@ -611,12 +645,25 @@ void initPhantom() {
 
 void cleanPhantom() {
     
-    /* Get phantom file path from input file */
     free(geometry.xbounds);
     free(geometry.ybounds);
     free(geometry.zbounds);
     free(geometry.med_indices);
     free(geometry.med_densities);
+    
+    return;
+}
+
+void initSource() {
+    
+        
+    return;
+}
+
+void cleanSource() {
+    
+    free(source.cdfinv1);
+    free(source.cdfinv2);
     
     return;
 }
@@ -651,6 +698,8 @@ void initMediaData(){
     
     /* Initialize data needed for electron multi-scattering interactions */
     initMscatData();
+    
+    printf("Interaction data initialized successfully\n");
     
     /* Cleaning */
     free(media_found);
@@ -2273,8 +2322,8 @@ void initMscatData() {
         leil = 0;
         electron.e_array[imed*MXEKE] = ei;
         electron.expeke1[imed] = exp(1.0/electron.eke1[imed]) - 1.0;
-        electron.range_ep[0*nmed*MXEKE + imed*MXEKE + 1] = 0.0;
-        electron.range_ep[1*nmed*MXEKE + imed*MXEKE + 1] = 0.0;
+        electron.range_ep[0*nmed*MXEKE + imed*MXEKE] = 0.0;
+        electron.range_ep[1*nmed*MXEKE + imed*MXEKE] = 0.0;
         
         neke = pegs_data.meke[imed]; /* number of elements in storage array */
         for (int i=1; i<=neke-1; i++) {
@@ -2291,19 +2340,19 @@ void initMscatData() {
             lelke = (int)(electron.eke1[imed]*elke + electron.eke0[imed]) -
             1;
             ededx = electron.pdedx1[imed*MXEKE + lelke]*elke +
-            electron.pdedx0[imed*MXEKE + lelke];
+                electron.pdedx0[imed*MXEKE + lelke];
             aux = electron.pdedx1[imed*MXEKE + i - 1]/ededx;
             electron.range_ep[1*nmed*MXEKE + imed*MXEKE + i] =
-            electron.range_ep[1*nmed*MXEKE + imed*MXEKE + i - 1] /
-            ededx*(1.0 + aux*(1.0 + 2.0*aux)*
-                   pow(((eip1 - ei)/eke), 2.0)/24.0);
+                electron.range_ep[1*nmed*MXEKE + imed*MXEKE + i - 1] +
+                    (eip1-ei)/ededx*(1.0 +
+                        aux*(1.0 + 2.0*aux)*pow((eip1-ei)/eke, 2.0)/24.0);
             ededx = electron.ededx1[imed*MXEKE + lelke]*elke +
-            electron.ededx0[imed*MXEKE + lelke];
+                electron.ededx0[imed*MXEKE + lelke];
             aux = electron.ededx1[imed*MXEKE + i - 1]/ededx;
             electron.range_ep[0*nmed*MXEKE + imed*MXEKE + i] =
-            electron.range_ep[0*nmed*MXEKE + imed*MXEKE + i - 1] +
-            (eip1 - ei)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
-                               pow(((eip1 - ei)/eke), 2.0)/24.0);
+                electron.range_ep[0*nmed*MXEKE + imed*MXEKE + i - 1] +
+                    (eip1 - ei)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                        pow(((eip1 - ei)/eke), 2.0)/24.0);
             ei = eip1;
         }
         
@@ -2314,9 +2363,9 @@ void initMscatData() {
         beta2 = p2/(p2 + pow(RM, 2.0));
         chi_a2 = electron.xcc[imed]/(4.0*p2*electron.blcc[imed]);
         dedx0 = electron.ededx1[imed*MXEKE + leil]*eil +
-        electron.ededx0[imed*MXEKE + leil];
+            electron.ededx0[imed*MXEKE + leil];
         estepx = 2.0*p2*beta2*dedx0/ei/electron.xcc[imed]/
-        (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
+            (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
         estepx *= XIMAX;
         if (estepx > ESTEPE) {
             estepx = ESTEPE;
@@ -2333,7 +2382,7 @@ void initMscatData() {
             beta2 = p2/(p2 + pow(RM, 2.0));
             chi_a2 = electron.xcc[imed]/(4.0*p2*electron.blcc[imed]);
             ededx = electron.ededx1[imed*MXEKE + lelke]*elke +
-            electron.ededx0[imed*MXEKE + lelke];
+                electron.ededx0[imed*MXEKE + lelke];
             estepx = 2.0*p2*beta2*ededx/eke/(electron.xcc[imed])/
             (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
             estepx = estepx*XIMAX;
@@ -2351,7 +2400,7 @@ void initMscatData() {
             else{
                 elkef = log(ekef);
                 lelkef = electron.eke1[imed]*elkef +
-                electron.eke0[imed] - 1;
+                    electron.eke0[imed] - 1;
                 leip1l = lelkef + 1;
                 eip1l  = (leip1l -electron.eke0[imed])/electron.eke1[imed];
                 eip1   = electron.e_array[imed*MXEKE + leip1l];
@@ -2360,28 +2409,28 @@ void initMscatData() {
                 ektmp  = 0.5*(ekef+eip1);
                 lelktmp = lelkef;
                 ededx = electron.ededx1[imed*MXEKE + lelktmp]*elktmp +
-                electron.ededx0[imed*MXEKE + lelktmp];
+                    electron.ededx0[imed*MXEKE + lelktmp];
                 aux = electron.ededx1[imed*MXEKE + lelktmp];
                 sip1 = (eip1 - ekef)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
-                                            (pow(((eip1-ekef)/ektmp),2.0)/24.0));
+                            (pow(((eip1-ekef)/ektmp),2.0)/24.0));
             }
             
-            sip1 += electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke]
-            - electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke + 1];
+            sip1 += electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke] -
+                electron.range_ep[0*nmed*MXEKE + imed*MXEKE + lelkef + 1];
             
             /* Now solve these equations
              si   = tmxs1 * eil   + tmxs0
              sip1 = tmxs1 * eip1l + tmxs0 */
             electron.tmxs1[imed*MXEKE + i - 1] =
-            (sip1 - si)*electron.eke1[imed];
+                (sip1 - si)*electron.eke1[imed];
             electron.tmxs0[imed*MXEKE + i - 1] = sip1 -
-            electron.tmxs1[imed*MXEKE + i - 1]*elke;
+                electron.tmxs1[imed*MXEKE + i - 1]*elke;
             si  = sip1;
         }
         electron.tmxs0[imed*MXEKE + neke - 1] =
-        electron.tmxs0[imed*MXEKE + neke - 2];
+            electron.tmxs0[imed*MXEKE + neke - 2];
         electron.tmxs1[imed*MXEKE + neke - 1] =
-        electron.tmxs1[imed*MXEKE + neke - 2];
+            electron.tmxs1[imed*MXEKE + neke - 2];
     }
     
     /* Print information for debugging purposes */
@@ -2407,7 +2456,6 @@ void initMscatData() {
             }
             printf("\n");
             
-            
             printf("e_array = \n");
             for (int j=0; j<5; j++) { // print just 5 first values
                 int idx = MXEKE*i + j;
@@ -2424,6 +2472,21 @@ void initMscatData() {
                 printf("\n");
             }
             printf("\n");
+            
+            printf("tmxs0 = \n");
+            for (int j=0; j<5; j++) { // print just 5 first values
+                int idx = MXEKE*i + j;
+                printf("tmxs0 = %f\n", electron.tmxs0[idx]);
+            }
+            printf("\n");
+            
+            printf("tmxs1 = \n");
+            for (int j=0; j<5; j++) { // print just 5 first values
+                int idx = MXEKE*i + j;
+                printf("tmxs1 = %f\n", electron.tmxs1[idx]);
+            }
+            printf("\n");
+            
         }
         
     }
