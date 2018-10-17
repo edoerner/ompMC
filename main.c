@@ -656,7 +656,102 @@ void cleanPhantom() {
 
 void initSource() {
     
+    /* Get spectrum file path from input data */
+    char spectrum_file[128];
+    char buffer[128];
+    
+    source.spectrum = 1;    /* energy spectrum as default case */
+    
+    /* First check of spectrum file was given as an input */
+    if (getInputValue(buffer, "spectrum file") != 1) {
+        printf("Can not find 'spectrum file' key on input file.\n");
+        printf("Switch to monoenergetic case.\n");
+        source.spectrum = 0;    /* monoenergetic source */
+    }
+    
+    if (source.spectrum) {
+        removeSpaces(spectrum_file, buffer);
         
+        /* Open .source file */
+        FILE *fp;
+        
+        if ((fp = fopen(spectrum_file, "r")) == NULL) {
+            printf("Unable to open file: %s\n", spectrum_file);
+            exit(EXIT_FAILURE);
+        }
+        
+        printf("Path to spectrum file : %s\n", spectrum_file);
+        
+        /* Read spectrum file title */
+        fgets(buffer, sizeof(buffer), fp);
+        printf("Spectrum file title: %s", buffer);
+        
+        /* Read number of bins and spectrum type */
+        double enmin;   /* lower energy of first bin */
+        int nensrc;     /* number of energy bins in spectrum histogram */
+        int imode;      /* 0 : histogram counts/bin, 1 : counts/MeV*/
+        
+        fgets(buffer, sizeof(buffer), fp);
+        sscanf(buffer, "%d %lf %d", &nensrc, &enmin, &imode);
+        
+        if (nensrc > MXEBIN) {
+            printf("Number of energy bins = %d is greater than max allowed = "
+                   "%d. Increase MXEBIN macro!\n", nensrc, MXEBIN);
+            exit(EXIT_FAILURE);
+        }
+        
+        /* upper energy of bin i in MeV */
+        double *ensrcd = malloc(nensrc*sizeof(double));
+        /* prob. of finding a particle in bin i */
+        double *srcpdf = malloc(nensrc*sizeof(double));
+        
+        /* Read spectrum information */
+        for (int i=0; i<nensrc; i++) {
+            fgets(buffer, sizeof(buffer), fp);
+            sscanf(buffer, "%lf %lf", &ensrcd[i], &srcpdf[i]);
+        }
+        printf("Have read %d input energy bins from spectrum file.\n", nensrc);
+        
+        if (imode == 0) {
+            printf("Counts/bin assumed.\n");
+        }
+        else if (imode == 1) {
+            printf("Counts/MeV assumed.\n");
+            srcpdf[0] *= (ensrcd[0] - enmin);
+            for(int i=1; i<nensrc; i++) {
+                srcpdf[i] *= (ensrcd[i] - ensrcd[i - 1]);
+            }
+        }
+        else {
+            printf("Invalid mode number in spectrum file.");
+            exit(EXIT_FAILURE);
+        }
+        
+        double ein = ensrcd[nensrc - 1];
+        printf("Energy ranges from %f to %f MeV\n", enmin, ein);
+        
+        /* Initialization routine to calculate the inverse of the
+         cumulative probability distribution that is used during execution to
+         sample the incident particle energy. */
+        double *srccdf = malloc(nensrc*sizeof(double));
+        srccdf[0] = srcpdf[0];
+        for (int i=1; i<nensrc; i++) {
+            srccdf[i] = srccdf[i-1] + srcpdf[i];
+        }
+        
+        /* Cleaning */
+        fclose(fp);
+        free(ensrcd);
+        free(srcpdf);
+    }
+    else {  /* monoenergetic source */
+        if (getInputValue(buffer, "mono energy") != 1) {
+            printf("Can not find 'mono energy' key on input file.\n");
+            exit(EXIT_FAILURE);
+        }
+        source.energy = atof(buffer);
+    }
+    
     return;
 }
 

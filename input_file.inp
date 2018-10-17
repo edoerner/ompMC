@@ -1,6 +1,6 @@
 # start source definition      
 mono energy = 6
-spectrum = ./spectra/var_6MV.spectrum
+spectrum file = ./spectra/var_6MV.spectrum
 charge = 0
 beamlet edges = -26.00000  22.75000  22.75000 -26.00000  22.25000  22.75000 -26.00000  22.25000  22.25000
 virtual point source position = -76.00000  24.00000  24.00000
