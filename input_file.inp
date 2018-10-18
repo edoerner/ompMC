@@ -2,14 +2,14 @@
 mono energy = 6
 spectrum file = ./spectra/var_6MV.spectrum
 charge = 0
-beamlet edges = -26.00000  22.75000  22.75000 -26.00000  22.25000  22.75000 -26.00000  22.25000  22.25000
-virtual point source position = -76.00000  24.00000  24.00000
+collimator bounds = -2.5 2.5 -2.5 2.5
+ssd = 90.0
 # end source definition
                               
 # start MC control          
 ncase  = 5000
 nbatch = 10
-rng seeds = 24442  27174
+rng seeds = 97 33
 # stop MC control           
                               
 # start geometry
@@ -19,5 +19,7 @@ phantom file = ./phantoms/h2o_phantom.egsphant
                               
 # start MC transport
 photon xsection = ./data/xcom
-pegs file = ./pegs4/521icru.pegs4dat      
+pegs file = ./pegs4/521icru.pegs4dat
+global ecut = 0.521
+global pcut = 0.010         
 # stop MC transport

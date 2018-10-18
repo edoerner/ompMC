@@ -99,12 +99,52 @@ struct Source {
                                 // phantom surface
     double yinl, yinu;          // lower and upper y-bounds of the field on
                                 // phantom surface
-    double xcoll, ycoll;        // x- and y-width of collimated field
+    double xsize, ysize;        // x- and y-width of collimated field
 };
 struct Source source;
 
 void initSource(void);
 void cleanSource(void);
+
+/******************************************************************************/
+/* Score definition */
+double *endep;
+
+/******************************************************************************/
+/* Region-by-region data definition */
+#define VACUUM -1
+struct Region {
+    int *med;
+    double *rhof;
+    double *pcut;
+    double *ecut;
+};
+struct Region region;
+
+void initRegions(void);
+void cleanRegions(void);
+
+/******************************************************************************/
+/* Random number generator definition */
+#define NRANDOM 128
+
+struct Random {
+    int crndm;
+    int cdrndm;
+    int cmrndm;
+    int ixx;
+    int jxx;
+    int rng_seed;
+    int *urndm;
+    int *rng_array;
+    double twom24;
+};
+struct Random rng;
+
+void initRandom(void);
+void getRandom(void);
+double setRandom(void);
+void cleanRandom(void);
 
 /******************************************************************************/
 /* Media definition */
@@ -439,6 +479,16 @@ int main (int argc, char **argv) {
     /* Initialize radiation source */
     initSource();
     
+    /* Initialize data on a region-by-region basis */
+    initRegions();
+    
+    /* Preparation of scoring array */
+    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
+    endep = malloc((gridsize + 1)*sizeof(double));
+    
+    /* Initialize random number generator */
+    initRandom();
+        
     /* Cleaning */
     cleanPhantom();
     cleanPhoton();
@@ -447,6 +497,10 @@ int main (int argc, char **argv) {
     cleanElectron();
     cleanMscat();
     cleanSpin();
+    cleanRegions();
+    cleanRandom();
+    
+    free(endep);
     
     exit (EXIT_SUCCESS);
 }
@@ -734,9 +788,61 @@ void initSource() {
          cumulative probability distribution that is used during execution to
          sample the incident particle energy. */
         double *srccdf = malloc(nensrc*sizeof(double));
+        
         srccdf[0] = srcpdf[0];
         for (int i=1; i<nensrc; i++) {
             srccdf[i] = srccdf[i-1] + srcpdf[i];
+        }
+        
+        double fnorm = 1.0/srccdf[nensrc - 1];
+        double binsok = 0.0;
+        source.deltak = INVDIM; /* number of elements in inverse CDF */
+        double gridsz = 1.0f/source.deltak;
+        
+        for (int i=0; i<nensrc; i++) {
+            srccdf[i] *= fnorm;
+            if (i == 0) {
+                if (srccdf[0] <= 3.0*gridsz) {
+                    binsok = 1.0;
+                }
+            }
+            else {
+                if ((srccdf[i] - srccdf[i - 1]) < 3.0*gridsz) {
+                    binsok = 1.0;
+                }
+            }
+        }
+        
+        if (binsok != 0.0) {
+            printf("Warning!, some of normalized bin probabilities are "
+                   "so small that bins may be missed.\n");
+        }
+
+        /* Calculate cdfinv. This array allows the rapid sampling for the
+         energy by precomputing the results for a fine grid. */
+        source.cdfinv1 = malloc(source.deltak*sizeof(double));
+        source.cdfinv2 = malloc(source.deltak*sizeof(double));
+        double ak;
+        
+        for (int k=0; k<source.deltak; k++) {
+            ak = (double)k*gridsz;
+            int i;
+            
+            for (i=0; i<nensrc; i++) {
+                if (ak <= srccdf[i]) {
+                    break;
+                }
+            }
+            
+            /* We should fall here only through the above break sentence. */
+            if (i != 0) {
+                source.cdfinv1[k] = ensrcd[i - 1];
+            }
+            else {
+                source.cdfinv1[k] = enmin;
+            }
+            source.cdfinv2[k] = ensrcd[i] - source.cdfinv1[k];
+            
         }
         
         /* Cleaning */
@@ -750,6 +856,117 @@ void initSource() {
             exit(EXIT_FAILURE);
         }
         source.energy = atof(buffer);
+        printf("%f monoenergetic source\n", source.energy);
+        
+    }
+    
+    /* Initialize geometrical data of the source */
+    
+    /* Read collimator rectangle */
+    if (getInputValue(buffer, "collimator bounds") != 1) {
+        printf("Can not find 'collimator bounds' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    sscanf(buffer, "%lf %lf %lf %lf", &source.xinl,
+           &source.xinu, &source.yinl, &source.yinu);
+    
+    /* Calculate x-direction input zones */
+    if (source.xinl < geometry.xbounds[0]) {
+        source.xinl = geometry.xbounds[0];
+    }
+    if (source.xinu <= source.xinl) {
+        source.xinu = source.xinl;  /* default a pencil beam */
+    }
+    
+    /* Check radiation field is not too big against the phantom */
+    if (source.xinu > geometry.xbounds[geometry.isize]) {
+        source.xinu = geometry.xbounds[geometry.isize];
+    }
+    if (source.xinl > geometry.xbounds[geometry.isize]) {
+        source.xinl = geometry.xbounds[geometry.isize];
+    }
+    
+    /* Now search for initial region x index range */
+    printf("Index ranges for radiation field:\n");
+    int ixinl = 0;
+    while ((geometry.xbounds[ixinl] <= source.xinl) &&
+           (geometry.xbounds[ixinl + 1] < source.xinl)) {
+        ixinl++;
+    }
+    int ixinu = ixinl - 1;
+    while ((geometry.xbounds[ixinu] <= source.xinu) &&
+           (geometry.xbounds[ixinu + 1] < source.xinu)) {
+        ixinu++;
+    }
+    printf("i index ranges over i = %d to %d\n", ixinl, ixinu);
+    
+    /* Calculate y-direction input zones */
+    if (source.yinl < geometry.ybounds[0]) {
+        source.yinl = geometry.ybounds[0];
+    }
+    if (source.yinu <= source.yinl) {
+        source.yinu = source.yinl;  /* default a pencil beam */
+    }
+    
+    /* Check radiation field is not too big against the phantom */
+    if (source.yinu > geometry.ybounds[geometry.jsize]) {
+        source.yinu = geometry.ybounds[geometry.jsize];
+    }
+    if (source.yinl > geometry.ybounds[geometry.jsize]) {
+        source.yinl = geometry.ybounds[geometry.jsize];
+    }
+    
+    /* Now search for initial region y index range */
+    int iyinl = 0;
+    while ((geometry.ybounds[iyinl] <= source.yinl) &&
+           (geometry.ybounds[iyinl + 1] < source.yinl)) {
+        iyinl++;
+    }
+    int iyinu = iyinl - 1;
+    while ((geometry.ybounds[iyinu] <= source.yinu) &&
+           (geometry.xbounds[iyinu + 1] < source.yinu)) {
+        iyinu++;
+    }
+    printf("j index ranges over i = %d to %d\n", iyinl, iyinu);
+    
+    /* Calculate collimator sizes */
+    source.xsize = source.xinu - source.xinl;
+    source.ysize = source.yinu - source.yinl;
+    
+    /* Read source charge */
+    if (getInputValue(buffer, "charge") != 1) {
+        printf("Can not find 'charge' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    source.charge = atoi(buffer);
+    if (source.charge < -1 || source.charge > 1) {
+        printf("Particle kind not recognized.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    /* Read source SSD */
+    if (getInputValue(buffer, "ssd") != 1) {
+        printf("Can not find 'ssd' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    source.ssd = atof(buffer);
+    if (source.ssd < 0) {
+        printf("SSD must be greater than zero.\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    /* Print some information for debugging purposes */
+    if (verbose_flag) {
+        printf("Source information :\n");
+        printf("\t Charge = %d\n", source.charge);
+        printf("\t SSD (cm) = %f\n", source.ssd);
+        printf("Collimator :\n");
+        printf("\t x (cm) : min = %f, max = %f\n", source.xinl, source.xinu);
+        printf("\t y (cm) : min = %f, max = %f\n", source.yinl, source.yinu);
+        printf("Sizes :\n");
+        printf("\t x (cm) = %f, y (cm) = %f\n", source.xsize, source.ysize);
     }
     
     return;
@@ -759,6 +976,242 @@ void cleanSource() {
     
     free(source.cdfinv1);
     free(source.cdfinv2);
+    
+    return;
+}
+
+void initRegions() {
+    
+    /* +1 : consider region surrounding phantom */
+    int nreg = geometry.isize*geometry.jsize*geometry.ksize + 1;
+    
+    /* Allocate memory for region data */
+    region.med = malloc(nreg*sizeof(int));
+    region.rhof = malloc(nreg*sizeof(double));
+    region.pcut = malloc(nreg*sizeof(double));
+    region.ecut = malloc(nreg*sizeof(double));
+    
+    /* First get global energy cutoff parameters */
+    char buffer[128];
+    if (getInputValue(buffer, "global ecut") != 1) {
+        printf("Can not find 'global ecut' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    double ecut = atof(buffer);
+    
+    if (getInputValue(buffer, "global pcut") != 1) {
+        printf("Can not find 'global pcut' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    double pcut = atof(buffer);
+    
+    /* Initialize transport parameters on each region. Region 0 is outside the
+     geometry */
+    region.med[0] = VACUUM;
+    region.rhof[0] = 0.0;
+    region.pcut[0] = 0.0;
+    region.ecut[0] = 0.0;
+    
+    for (int i=1; i<nreg; i++) {
+        
+        /* -1 : EGS counts media from 1. Substract 1 to get medium index */
+        int imed = geometry.med_indices[i - 1] - 1;
+        region.med[i] = imed;
+        
+        if (imed == VACUUM) {
+            region.rhof[0] = 0.0F;
+            region.pcut[0] = 0.0F;
+            region.ecut[0] = 0.0F;
+        }
+        else {
+            if (geometry.med_densities[i - 1] == 0.0F) {
+                region.rhof[i] = 1.0;
+            }
+            else {
+                region.rhof[i] =
+                    geometry.med_densities[i - 1]/pegs_data.rho[imed];
+            }
+            
+            /* Check if global cut-off values are within PEGS data */
+            if (pegs_data.ap[imed] <= pcut) {
+                region.pcut[i] = pcut;
+            } else {
+                printf("Warning!, global pcut value is below PEGS's pcut value "
+                       "%f for medium %d, using PEGS value.\n",
+                       pegs_data.ap[imed], imed);
+                region.pcut[i] = pegs_data.ap[imed];
+            }
+            if (pegs_data.ae[imed] <= ecut) {
+                region.ecut[i] = ecut;
+            } else {
+                printf("Warning!, global pcut value is below PEGS's ecut value "
+                       "%f for medium %d, using PEGS value.\n",
+                       pegs_data.ae[imed], imed);
+            }
+        }
+    }
+
+    /* Print some information for debugging purposes */
+    if (verbose_flag) {
+        printf("Listing region data: \n");
+        for (int i=0; i<5; i++) {
+            printf("For region %d\n", i);
+            printf("\t med = %d\n", region.med[i]);
+            printf("\t rhof = %f\n", region.rhof[i]);
+            printf("\t pcut = %f\n", region.pcut[i]);
+            printf("\t ecut = %f\n", region.ecut[i]);
+        }
+    }
+    
+    return;
+}
+
+void cleanRegions() {
+    
+    free(region.med);
+    free(region.rhof);
+    free(region.ecut);
+    free(region.pcut);
+    
+    return;
+}
+
+void initRandom() {
+    
+    /* Get initial seeds from input */
+    char buffer[128];
+    if (getInputValue(buffer, "rng seeds") != 1) {
+        printf("Can not find 'rng seeds' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    sscanf(buffer, "%d %d", &rng.ixx, &rng.jxx);
+    
+    if (rng.ixx <= 0 || rng.ixx > 31328) {
+        printf("Warning!, setting Marsaglia default for ixx\n");
+        rng.ixx = 1802; /* sets Marsaglia default */
+    }
+    if (rng.jxx <= 0 || rng.jxx > 31328) {
+        printf("Warning!, setting Marsaglia default for jxx\n");
+        rng.jxx = 9373; /* sets Marsaglia default */
+    }
+    printf("RNG seeds : ixx = %d, jxx = %d\n", rng.ixx, rng.jxx);
+    
+    int i = (rng.ixx/177 % 177) + 2;
+    int j = (rng.ixx % 177) + 2;
+    int k = (rng.jxx/169 % 178) + 1;
+    int l = (rng.jxx % 169);
+    
+    int s, t, m;
+    rng.urndm = malloc(97*sizeof(int));
+    for (int ii = 0; ii<97; ii++) {
+        s = 0;
+        t = 8388608;    /* t is 2^23, half of the maximum allowed. Note that
+                         only 24 bits are used */
+        for (int jj=0; jj<24; jj++) {
+            m = ((i*j % 179)*k) % 179;
+            i = j;
+            j = k;
+            k = m;
+            l = (53*l + 1) % 169;
+            
+            if (l*m % 64 >= 32) {
+                s += t;
+            }
+            t /=2;
+        }
+        rng.urndm[ii] = s;
+    }
+    
+    rng.crndm = 362436;
+    rng.cdrndm = 7654321;
+    rng.cmrndm = 16777213;
+    
+    rng.twom24 = 1.0/16777216.0;
+    
+    rng.ixx = 97;
+    rng.jxx = 33;
+    
+    /* Allocate memory for random array and set seed to start calculation of
+     random numbers */
+    rng.rng_array = malloc(NRANDOM*sizeof(int));
+    rng.rng_seed = NRANDOM;
+    
+    /* Print some information for debugging purposes */
+    if (verbose_flag) {
+        printf("Listing RNG information:\n");
+        printf("ixx = %d\n", rng.ixx);
+        printf("jxx = %d\n", rng.jxx);
+        printf("crndm = %d\n", rng.crndm);
+        printf("cdrndm = %d\n", rng.cdrndm);
+        printf("cmrndm = %d\n", rng.cmrndm);
+        printf("twom24 = %e\n", rng.twom24);
+        printf("rng_seed = %d\n", rng.rng_seed);
+        
+        printf("urndm = \n");
+        for (int i=0; i<5; i++) { /* printf just 5 first values */
+            printf("urndm[%d] = %d\n", i, rng.urndm[i]);
+        }
+        printf("\n");
+    }
+    return;
+}
+
+void getRandom() {
+    
+    int iopt;
+    
+    for (int i=0; i<NRANDOM; i++) {
+        iopt = rng.urndm[rng.ixx - 1] - rng.urndm[rng.jxx - 1]; /* C index */
+        if (iopt < 0) {
+            iopt += 16777216;
+        }
+        
+        rng.urndm[rng.ixx - 1] = iopt;
+
+        rng.ixx -= 1;
+        rng.jxx -= 1;
+        if (rng.ixx == 0) {
+            rng.ixx = 97;
+        }
+        else if (rng.jxx == 0) {
+            rng.jxx = 97;
+        }
+        
+        rng.crndm -= rng.cdrndm;
+        if (rng.crndm < 0) {
+            rng.crndm += rng.cmrndm;
+        }
+        
+        iopt -= rng.crndm;
+        if (iopt < 0) {
+            iopt += 16777216;
+        }
+        rng.rng_array[i] = iopt;
+    }
+    
+    rng.rng_seed = 0; /* index in C starts at 0 */
+    
+    return;
+}
+
+double setRandom() {
+    
+    double rnno = 0.0;
+    
+    if (rng.rng_seed >= NRANDOM) {
+        getRandom();
+    }
+    
+    rnno = rng.rng_array[rng.rng_seed]*rng.twom24;
+    rng.rng_seed += 1;
+    
+    return rnno;
+}
+
+void cleanRandom() {
+    
+    free(rng.urndm);
+    free(rng.rng_array);
     
     return;
 }
