@@ -101,6 +101,10 @@ struct Source {
     double yinl, yinu;          // lower and upper y-bounds of the field on
                                 // phantom surface
     double xsize, ysize;        // x- and y-width of collimated field
+    int ixinl, ixinu;        // lower and upper x-bounds indices of the
+                                // field on phantom surface
+    int iyinl, iyinu;        // lower and upper y-bounds indices of the
+                                // field on phantom surface
 };
 struct Source source;
 
@@ -121,6 +125,35 @@ struct Scoring scoring;
 
 void initScoring(void);
 void cleanScoring(void);
+
+/******************************************************************************/
+/* Stack definition */
+#define MXSTACK 40  // maximum number of particles on stack
+
+struct Stack {
+    int np;         // stack pointer
+    
+    int *iq;        // particle charge
+    int *ir;        // current region
+    
+    double *e;      // total particle energy
+    
+    double *x;      // particle coordinates
+    double *y;
+    double *z;
+    
+    double *u;      // particle direction cosines
+    double *v;
+    double *w;
+    
+    double *dnear;  // perpendicular distance to nearest boundary
+    double *wt;     // particle weight
+};
+struct Stack stack;
+
+void initStack(void);
+void initHistory(void);
+void cleanStack(void);
 
 /******************************************************************************/
 /* Region-by-region data definition */
@@ -498,6 +531,9 @@ int main (int argc, char **argv) {
     /* Initialize random number generator */
     initRandom();
     
+    /* Initialize particle stack */
+    initStack();
+    
     /* Shower call */
     
     /* Get number of histories and statistical batches */
@@ -549,7 +585,9 @@ int main (int argc, char **argv) {
         }
         
         for (int ihist=0; ihist<nperbatch; ihist++) {
-            ;
+            /* Initialize particle history */
+            initHistory();
+            
         }
         
     }
@@ -565,6 +603,7 @@ int main (int argc, char **argv) {
     cleanRegions();
     cleanRandom();
     cleanScoring();
+    cleanStack();
     
     /* Get total execution time */
     tend = clock();
@@ -964,17 +1003,18 @@ void initSource() {
     
     /* Now search for initial region x index range */
     printf("Index ranges for radiation field:\n");
-    int ixinl = 0;
-    while ((geometry.xbounds[ixinl] <= source.xinl) &&
-           (geometry.xbounds[ixinl + 1] < source.xinl)) {
-        ixinl++;
+    source.ixinl = 0;
+    while ((geometry.xbounds[source.ixinl] <= source.xinl) &&
+           (geometry.xbounds[source.ixinl + 1] < source.xinl)) {
+        source.ixinl++;
     }
-    int ixinu = ixinl - 1;
-    while ((geometry.xbounds[ixinu] <= source.xinu) &&
-           (geometry.xbounds[ixinu + 1] < source.xinu)) {
-        ixinu++;
+    
+    source.ixinu = source.ixinl - 1;
+    while ((geometry.xbounds[source.ixinu] <= source.xinu) &&
+           (geometry.xbounds[source.ixinu + 1] < source.xinu)) {
+        source.ixinu++;
     }
-    printf("i index ranges over i = %d to %d\n", ixinl, ixinu);
+    printf("i index ranges over i = %d to %d\n", source.ixinl, source.ixinu);
     
     /* Calculate y-direction input zones */
     if (source.yinl < geometry.ybounds[0]) {
@@ -993,17 +1033,17 @@ void initSource() {
     }
     
     /* Now search for initial region y index range */
-    int iyinl = 0;
-    while ((geometry.ybounds[iyinl] <= source.yinl) &&
-           (geometry.ybounds[iyinl + 1] < source.yinl)) {
-        iyinl++;
+    source.iyinl = 0;
+    while ((geometry.ybounds[source.iyinl] <= source.yinl) &&
+           (geometry.ybounds[source.iyinl + 1] < source.yinl)) {
+        source.iyinl++;
     }
-    int iyinu = iyinl - 1;
-    while ((geometry.ybounds[iyinu] <= source.yinu) &&
-           (geometry.xbounds[iyinu + 1] < source.yinu)) {
-        iyinu++;
+    source.iyinu = source.iyinl - 1;
+    while ((geometry.ybounds[source.iyinu] <= source.yinu) &&
+           (geometry.ybounds[source.iyinu + 1] < source.yinu)) {
+        source.iyinu++;
     }
-    printf("j index ranges over i = %d to %d\n", iyinl, iyinu);
+    printf("j index ranges over i = %d to %d\n", source.iyinl, source.iyinu);
     
     /* Calculate collimator sizes */
     source.xsize = source.xinu - source.xinl;
@@ -1314,6 +1354,146 @@ void cleanScoring() {
     free(scoring.endep);
     free(scoring.accum_endep);
     free(scoring.accum_endep2);
+    
+    return;
+}
+
+void initStack() {
+    
+    /* Allocate memory for particle stack */
+    stack.np = 0;
+    stack.iq = malloc(MXSTACK*sizeof(int));
+    stack.ir = malloc(MXSTACK*sizeof(int));
+    stack.e = malloc(MXSTACK*sizeof(double));
+    stack.x = malloc(MXSTACK*sizeof(double));
+    stack.y = malloc(MXSTACK*sizeof(double));
+    stack.z = malloc(MXSTACK*sizeof(double));
+    stack.u = malloc(MXSTACK*sizeof(double));
+    stack.v = malloc(MXSTACK*sizeof(double));
+    stack.w = malloc(MXSTACK*sizeof(double));
+    stack.wt = malloc(MXSTACK*sizeof(double));
+    stack.dnear = malloc(MXSTACK*sizeof(double));
+    
+    
+    
+    return;
+}
+
+void initHistory() {
+    
+    /* Initialize first particle of the stack from source data */
+    stack.np = 0;   // it should be zero anyway if initStack() was called before
+    stack.iq[stack.np] = source.charge;
+    
+    /* Get primary particle energy */
+    double ein = 0.0;
+    if (source.spectrum) {
+        /* Sample initial energy from spectrum data */
+        double rnno1 = setRandom();
+        double rnno2 = setRandom();
+        
+        /* Sample bin number in order to select particle energy */
+        int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
+        ein = source.cdfinv1[k] + rnno2*source.cdfinv2[k];
+    }
+    else {
+        /* Monoenergetic source */
+        ein = source.energy;
+    }
+    
+    /* Check if the particle is an electron, in such a case add electron
+     rest mass energy */
+    if (stack.iq[stack.np] != 0) {
+        /* Electron or positron */
+        stack.e[stack.np] = ein + RM;
+    }
+    else {
+        /* Photon */
+        stack.e[stack.np] = ein;
+    }
+    
+    /* Set particle position. First obtain a random position in the rectangle
+     defined by the collimator */
+    double rxyz = 0.0;
+    if (source.xsize == 0.0 || source.ysize == 0.0) {
+        stack.x[stack.np] = source.xinl;
+        stack.y[stack.np] = source.yinl;
+        
+        rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
+                    pow(stack.y[stack.np], 2.0));
+        
+        /* Get direction along z-axis */
+        stack.w[stack.np] = source.ssd/rxyz;
+        
+    } else {
+        double fw;
+        while (1) { /* rejection sampling of the initial position */
+            double rnno3 = setRandom();
+            stack.x[stack.np] = rnno3*source.xsize + source.xinl;
+            rnno3 = setRandom();
+            stack.y[stack.np] = rnno3*source.ysize + source.yinl;
+            rnno3 = setRandom();
+            rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
+                        pow(stack.y[stack.np], 2.0));
+            
+            /* Get direction along z-axis */
+            stack.w[stack.np] = source.ssd/rxyz;
+            
+            fw = pow(stack.w[stack.np], 3.0);
+            if (rnno3 < fw) {
+                break;
+            }
+        }   /* end of while loop */
+    }
+    /* Set position of the particle in front of the geometry */
+    stack.z[stack.np] = geometry.zbounds[0];
+    
+    /* At this point the position has been found, calculate particle
+     direction */
+    stack.u[stack.np] = stack.x[stack.np]/rxyz;
+    stack.v[stack.np] = stack.y[stack.np]/rxyz;
+    
+    /* Determine region index of source particle */
+    int ix, iy;
+    if (source.xsize == 0.0) {
+        ix = source.ixinl;
+    } else {
+        ix = source.ixinl - 1;
+        while ((geometry.xbounds[ix] <= stack.x[stack.np]) &&
+               (geometry.xbounds[ix + 1] < stack.x[stack.np])) {
+            ix++;
+        }
+    }
+    if (source.ysize == 0.0) {
+        iy = source.iyinl;
+    } else {
+        iy = source.iyinl - 1;
+        while ((geometry.ybounds[iy] <= stack.y[stack.np]) &&
+               (geometry.xbounds[iy + 1] < stack.y[stack.np])) {
+            iy++;
+        }
+    }
+    stack.ir[stack.np] = 1 + ix + iy*geometry.isize;
+    
+    /* Set statistical weight */
+    stack.wt[stack.np] = 1.0;
+    
+    return;
+}
+
+void cleanStack() {
+    
+    free(stack.iq);
+    free(stack.ir);
+    free(stack.e);
+    free(stack.x);
+    free(stack.y);
+    free(stack.z);
+    free(stack.u);
+    free(stack.v);
+    free(stack.w);
+    free(stack.wt);
+    free(stack.dnear);
     
     return;
 }
