@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 /******************************************************************************/
 /* Parsing program options with getopt long
@@ -108,11 +109,23 @@ void cleanSource(void);
 
 /******************************************************************************/
 /* Score definition */
-double *endep;
+struct Scoring {
+    double *endep;              // 3D dep. energy matrix per batch
+    
+    /* The following variables are needed for statistical analysis. Their
+     values are accumulated across the simulation */
+    double *accum_endep;        // 3D deposited energy matrix
+    double *accum_endep2;       // 3D square deposited energy
+};
+struct Scoring scoring;
+
+void initScoring(void);
+void cleanScoring(void);
 
 /******************************************************************************/
 /* Region-by-region data definition */
 #define VACUUM -1
+
 struct Region {
     int *med;
     double *rhof;
@@ -386,6 +399,10 @@ double spline(double s, double *x, double *a, double *b, double *c,
 
 int main (int argc, char **argv) {
     
+    /* Execution time measurement */
+    clock_t tbegin, tend;
+    tbegin = clock();
+    
     /* Parsing program options */
     
     int c;
@@ -463,13 +480,6 @@ int main (int argc, char **argv) {
     /* Parse input file and print key,value pairs (test) */
     parseInputFile(input_file);
     
-    if(verbose_flag) {
-        for (int i = 0; i<input_idx; i++) {
-            printf("key = %s, value = %s\n", input_items[i].key,
-                   input_items[i].value);
-        }
-    }
-    
     /* Read geometry information from phantom file and initialize geometry */
     initPhantom();
     
@@ -482,12 +492,67 @@ int main (int argc, char **argv) {
     /* Initialize data on a region-by-region basis */
     initRegions();
     
-    /* Preparation of scoring array */
-    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
-    endep = malloc((gridsize + 1)*sizeof(double));
+    /* Preparation of scoring struct */
+    initScoring();
     
     /* Initialize random number generator */
     initRandom();
+    
+    /* Shower call */
+    
+    /* Get number of histories and statistical batches */
+    char buffer[128];
+    if (getInputValue(buffer, "ncase") != 1) {
+        printf("Can not find 'ncase' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    int nhist = atoi(buffer);
+    
+    if (getInputValue(buffer, "nbatch") != 1) {
+        printf("Can not find 'nbatch' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    int nbatch = atoi(buffer);
+    
+    if (nhist/nbatch == 0) {
+        nhist = nbatch;
+    }
+    
+    int nperbatch = nhist/nbatch;
+    nhist = nperbatch*nbatch;
+    
+    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
+    
+    printf("Total number of particle histories: %d\n", nhist);
+    printf("Number of statistical batches: %d\n", nbatch);
+    printf("Histories per batch: %d\n", nperbatch);
+    
+    /* Execution time up to this point */
+    printf("Execution time up to this point : %8.5f seconds\n",
+           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
+    
+    for (int ibatch=0; ibatch<nbatch; ibatch++) {
+        if (ibatch == 0) {
+            /* Print header for information during simulation */
+            printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
+                   "RNG state");
+            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+        }
+        else {
+            /* Print state of current batch */
+            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+            
+            /* Reset deposited energy array for each batch */
+            memset(scoring.endep, 0.0, (gridsize + 1)*sizeof(double));
+        }
+        
+        for (int ihist=0; ihist<nperbatch; ihist++) {
+            ;
+        }
+        
+    }
         
     /* Cleaning */
     cleanPhantom();
@@ -499,8 +564,12 @@ int main (int argc, char **argv) {
     cleanSpin();
     cleanRegions();
     cleanRandom();
+    cleanScoring();
     
-    free(endep);
+    /* Get total execution time */
+    tend = clock();
+    printf("Total execution time : %8.5f seconds\n",
+           (double)(tend - tbegin)/CLOCKS_PER_SEC);
     
     exit (EXIT_SUCCESS);
 }
@@ -530,6 +599,13 @@ void parseInputFile(char *file_name) {
     
     input_idx--;
     fclose(fp);
+    
+    if(verbose_flag) {
+        for (int i = 0; i<input_idx; i++) {
+            printf("key = %s, value = %s\n", input_items[i].key,
+                   input_items[i].value);
+        }
+    }
     
     return;
 }
@@ -1212,6 +1288,32 @@ void cleanRandom() {
     
     free(rng.urndm);
     free(rng.rng_array);
+    
+    return;
+}
+
+void initScoring() {
+    
+    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
+    
+    /* Region with index 0 corresponds to region outside phantom */
+    scoring.endep = malloc((gridsize + 1)*sizeof(double));
+    scoring.accum_endep = malloc((gridsize + 1)*sizeof(double));
+    scoring.accum_endep2 = malloc((gridsize + 1)*sizeof(double));
+    
+    /* Initialize all arrays to zero */
+    memset(scoring.endep, 0.0, (gridsize + 1)*sizeof(double));
+    memset(scoring.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
+    memset(scoring.accum_endep2, 0.0, (gridsize + 1)*sizeof(double));
+    
+    return;
+}
+
+void cleanScoring() {
+    
+    free(scoring.endep);
+    free(scoring.accum_endep);
+    free(scoring.accum_endep2);
     
     return;
 }
