@@ -204,7 +204,9 @@ struct Uphi {
 };
 
 void shower(void);
+void transferProperties(int npnew, int npold);
 void uphi21(struct Uphi *uphi, double costhe, double sinthe);
+void uphi32(struct Uphi *uphi, double costhe, double sinthe);
 
 /******************************************************************************/
 /* Media definition */
@@ -328,6 +330,9 @@ void initPairData(void);
 double fcoulc(double zi);
 double xsif(double zi, double fc);
 void cleanPair(void);
+void pair(int imed);
+double setPairRejectionFunction(int imed, double xi, double esedei,
+                                double eseder, double tteig);
 
 /******************************************************************************/
 /* Photon transport process */
@@ -1384,6 +1389,25 @@ void shower() {
     return;
 }
 
+void transferProperties(int npnew, int npold) {
+    /* The following function transfer phase space properties from particle
+     npold on stack to particle np */
+    stack.x[npnew] = stack.x[npold];
+    stack.y[npnew] = stack.y[npold];
+    stack.z[npnew] = stack.z[npold];
+
+    stack.u[npnew] = stack.u[npold];
+    stack.v[npnew] = stack.v[npold];
+    stack.w[npnew] = stack.w[npold];
+
+    stack.ir[npnew] = stack.ir[npold];
+    stack.wt[npnew] = stack.wt[npold];
+    stack.dnear[npnew] = stack.dnear[npold];
+    
+    return;
+}
+
+
 /* The following set of uphi functions set coordinates for new particle or
  reset direction cosines of old one. Generate random azimuth selection and
  replace the direction cosine with their new values. */
@@ -1428,6 +1452,42 @@ void uphi21(struct Uphi *uphi,
     return;
 }
 
+void uphi32(struct Uphi *uphi,
+            double costhe, double sinthe) {
+    
+    int np = stack.np;
+    
+    /* The following section is used for the second of two particles when it is
+     known that there is a relationship in their corrections. In this version
+     it is worked on the new particle */
+    
+    /* Transfer phase space information like position and direction of the
+     first particle to the second */
+    transferProperties(np, np-1);
+    
+    /* Now adjust direction of the second particle */
+    double sinps2 = pow(uphi->A, 2.0) + pow(uphi->B, 2.0);
+    
+    /* Small polar change */
+    if (sinps2 < 1E-20) {
+        stack.u[np] = sinthe*uphi->cosphi;
+        stack.v[np] = sinthe*uphi->sinphi;
+        stack.w[np] = uphi->C*costhe;
+    }
+    else {
+        double sinpsi = sqrt(sinps2);
+        double us = sinthe*uphi->cosphi;
+        double vs = sinthe*uphi->sinphi;
+        double sindel = uphi->B/sinpsi;
+        double cosdel = uphi->A/sinpsi;
+        
+        stack.u[np] = uphi->C*cosdel*us - sindel*vs + uphi->A*costhe;
+        stack.v[np] = uphi->C*sindel*us + cosdel*vs + uphi->B*costhe;
+        stack.w[np] = -sinpsi*us + uphi->C*costhe;
+    }
+    
+    return;
+}
 
 void initScore() {
     
@@ -3292,6 +3352,24 @@ void photon() {
         /* It was Rayleigh */
         rayleigh(imed, eig, gle, lgle);
     }
+    else {
+        /* Other interactions */
+        rnno = setRandom();
+        
+        /* gbr1 = pair/(pair + compton + photo) = pair/gtotal */
+        double gbr1 = pwlfEval(imed*MXGE + lgle, gle,
+                               photon_data.gbr11, photon_data.gbr10);
+        if (rnno <= gbr1 && eig>2.0*RM) {
+            /* It was pair production */
+            pair(imed);
+            
+            np = stack.np;
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
+    }
     
     /* for the moment just discard photon */
     stack.np -= 1;
@@ -3342,6 +3420,255 @@ void rayleigh(int imed, double eig, double gle, int lgle) {
     uphi21(&uphi, costhe, sinthe);
 
     
+    return;
+}
+
+double setPairRejectionFunction(int imed, double xi, double esedei,
+                                double eseder, double tteig) {
+    
+    double rej = 2.0 + 3.0*(esedei + eseder) - 4.0*(esedei + eseder +
+        1.0 - 4.0*pow((xi - 0.5), 2.0))*(1.0 +
+            0.25*log((pow(((1.0 + eseder)*(1.0 + esedei)/(2.0*tteig)),2.0)) +
+                pair_data.zbrang[imed]*pow(xi, 2.0)));
+    
+    return rej;
+}
+
+void pair(int imed) {
+    
+    int np = stack.np;
+    double eig = stack.e[np];   /* energy of incident photon */
+    
+    double ese1, ese2;          /* energy of "electrons" */
+    int iq1, iq2;               /* charge of "electrons" */
+    int l, l1;                  /* flags for high/low energy distributions */
+    
+    if (eig <= 2.1) {
+        /* Use low energy pair production aproximation. It corresponds to an
+         uniform energy distribution */
+        double rnno0 = setRandom();
+        double rnno1 = setRandom();
+        
+        ese2 = RM + 0.5*rnno0*(eig - 2.0*RM);
+        ese1 = eig - ese2;
+        
+        if (rnno1 < 0.5) {
+            iq1 = -1;
+            iq2 = 1;
+        } else {
+            iq1 = 1;
+            iq2 = -1;
+        }
+        
+    } else {
+        /* Must sample. Now decide whether to use Bethe-Heitler or BH
+         Coulomb corrected */
+        double Amax;    /* maximum of the screening function used with
+                         (br-1/2)^2 */
+        double Bmax;    /* maximum of the screening function used with the
+                         uniform part */
+        double delta;   /* scaled momentum transfer */
+        double aux;
+        
+        if (eig < 50.0) {
+            /* Use BH without Coulomb correction */
+            l = 4;
+            l1 = l + 1;
+            
+            /* Find the actual rejection maximum for this photon energy */
+            delta = 4.0*pair_data.delcm[imed]/eig;
+            if(delta < 1.0) {
+                Amax = pair_data.dl1[imed*8+l] +
+                    delta*(pair_data.dl2[imed*8+l] +
+                        delta*pair_data.dl3[imed*8+l]);
+                Bmax = pair_data.dl1[imed*8+l1] +
+                    delta*(pair_data.dl2[imed*8+l1] +
+                        delta*pair_data.dl3[imed*8+l1]);
+            }
+            else {
+                aux = log(delta + pair_data.dl6[imed*8+l]);
+                Amax = pair_data.dl4[imed*8+l] + pair_data.dl5[imed*8+l]*aux;
+                Bmax = pair_data.dl4[imed*8+l1] + pair_data.dl5[imed*8+l1]*aux;
+            }
+            /* and then calculate the probability for sampling from (br-1/2)^2*/
+            aux = 1.0 - 2.0*RM/eig;
+            aux = pow(aux, 2.0);
+            aux *= Amax/3.0;
+            aux /= (Bmax + aux);
+
+        } else {
+            /* Use BH Coulomb-corrected */
+            l = 6;
+            
+            /* The absolute maxima are close to the actual maxima
+             at high energies */
+            Amax = pair_data.dl1[imed*8+l];
+            Bmax = pair_data.dl1[imed*8+l+1];
+            aux = pair_data.bpar1[imed]*(1.0 - pair_data.bpar0[imed]*RM/eig);
+
+        }
+        
+        double eavail = eig - 2.0*RM;    /* energy available after
+                                         pair production */
+        double rejf;     /* screening rejection function */
+        double rejmax;   /* the maximum of rejmax */
+        double rnno4;
+
+        do {
+            double br; /* fraction of the available energy (eig-2*RM) going to
+                       the lower energy electron */
+            double rnno0 = setRandom();
+            double rnno1 = setRandom();
+            rnno4 = setRandom();
+            
+            if(rnno0 > aux) {
+                /* Use the uniform part of the distribution */
+                br = 0.5*rnno1;
+                rejmax = Bmax;
+                l1 = l + 1;
+            }
+            else {
+                /* Use the (br-1/2)^2 part */
+                float rnno2 = setRandom();
+                float rnno3 = setRandom();
+                br = 0.5*(1.0 - fmax(fmax(rnno1, rnno2), rnno3));
+                rejmax = Amax;
+                l1 = l;
+            }
+            
+            ese2 = br*eavail + RM;
+            ese1 = eig - ese2;
+            delta = (eig*pair_data.delcm[imed])/(ese2*ese1);
+            if(delta < 1.0) {
+                rejf = pair_data.dl1[imed*8+l1] +
+                    delta*(pair_data.dl2[imed*8+l1] +
+                           delta*pair_data.dl3[imed*8+l1]);
+            }
+            else {
+                rejf = pair_data.dl4[imed*8+l1] +
+                    pair_data.dl5[imed*8+l1]*
+                        log(delta + pair_data.dl6[imed*8+l1]);
+            }
+            
+        } while(rnno4*rejmax > rejf);
+        
+        ese1 = eig - ese2;
+        rnno4 = setRandom();
+        
+        if (rnno4 < 0.5) {
+            iq1 = -1;
+            iq2 = 1;
+        } else {
+            iq1 = 1;
+            iq2 = -1;
+        }
+    }
+    
+    /* Energy going to lower secondary has now been determined */
+    stack.e[np] = ese1;
+    stack.e[np+1] = ese2;
+    
+    /* Set pair angle and direction of charged particles. The angle is selected
+     from the leading term of the angular distribution */
+    double ese;
+    double sinthe;
+    double costhe;
+    struct Uphi uphi;
+
+    for(int j=0; j<2; j++) {
+        /* This loop is executed twice, once for each generated particle. The
+         following corresponds to iprdst == 2 (MOTZ, OLSEN AND KOCH 1969) */
+        if(j == 0) {
+            ese = ese1;
+        }
+        else {
+            ese = ese2;
+        }
+        
+        double tteig = eig/RM;  /* initial photon energy in electron RM units */
+        double ttese = ese/RM;  /* final electron energy in electron RM units */
+        
+        /* Ratio of particle's energies (r in PIRS0287) */
+        double esedei = ttese/(tteig - ttese);
+        double eseder = 1.0/esedei;
+        
+        /* Determine the normalization */
+        double ximin = 1.0/(1.0 + pow((M_PI*ttese), 2.0));
+        
+        /* Set pair rejection function eq. 4 PIRS 0287 */
+        double rejmin = setPairRejectionFunction(imed, ximin, esedei,
+                                                 eseder, tteig);
+        
+        double ya = pow((2.0/tteig), 2.0);
+        double xitry = fmax(0.01, fmax(ximin, fmin(0.5,
+            sqrt(ya/pair_data.zbrang[imed]))));
+        double galpha = 1.0 + 0.25*log(ya +
+            pair_data.zbrang[imed]*pow(xitry, 2.0));
+        double gbeta = 0.5*pair_data.zbrang[imed]*xitry/(ya +
+            pair_data.zbrang[imed]*pow(xitry, 2.0));
+        galpha -= gbeta*(xitry - 0.5);
+        double ximid = galpha/(3.0*gbeta);
+        
+        if (galpha >= 0.0) {
+            ximid = 0.5 - ximid + sqrt(pow(ximid, 2.0) + 0.25);
+        } else{
+            ximid = 0.5 - ximid - sqrt(pow(ximid, 2.0) + 0.25);
+        }
+        
+        ximid = fmax(0.01, fmax(ximin, fmin(0.5, ximid)));
+        
+        /* Set pair rejection function eq. 4 PIRS 0287 */
+        double rejmid = setPairRejectionFunction(imed, ximid, esedei,
+                                                 eseder, tteig);
+        
+        /* Estimate maximum of the rejection function for later use by the
+         rejection technique */
+        double rejtop = 1.0*fmax(rejmin, rejmid);
+        
+        double theta;
+        double rejtst;
+        double rejfactor;
+        double rtest;
+        
+        do {
+            double xitst = setRandom();
+            
+            /* Set pair rejection function eq. 4 PIRS 0287 */
+            rejtst = setPairRejectionFunction(imed, xitst, esedei,
+                                              eseder, tteig);
+            
+            rtest = setRandom();
+            
+            /* Convert the successful candidate xitst to an angle */
+            theta = sqrt(1.0/xitst - 1.0)/ttese;
+            
+            /* Loop until rejection technique accepts xitst */
+            rejfactor = rejtst/rejtop;
+        } while((rtest > rejfactor) && (theta >= M_PI));
+        
+        sinthe = sin(theta);
+        costhe = cos(theta);
+        
+        if (j == 0) {
+            /* First Particle */
+            uphi21(&uphi, costhe, sinthe);
+        }
+        else {
+            /* Second Particle */
+            sinthe = -sinthe;
+            
+            /* Update stack index, it is needed by uphi32() */
+            np += 1;
+            stack.np = np;
+            uphi32(&uphi, costhe, sinthe);
+        }
+    }
+
+    /* Assign charge to new particles. The stack index was already updated,
+     therefore the new particles correspond to np and np-1 indices */
+    stack.iq[np] = iq2;
+    stack.iq[np-1] = iq1;
+
     return;
 }
 
@@ -4534,6 +4861,9 @@ double spline(double s, double *x, double *a, double *b, double *c,
 }
 
 void electron() {
+    
+    /* for the moment just discard electron */
+    stack.np -= 1;
     
     return;
 }
