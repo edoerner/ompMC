@@ -1417,8 +1417,8 @@ void uphi21(struct Uphi *uphi,
     /* This section is used if costhe and sinthe are already known. Phi
      is selected uniformly over the interval (0,2Pi) */
     int np = stack.np;
-    float r1 = setRandom();
-    float phi = 2.0f*M_PI*r1;
+    double r1 = setRandom();
+    double phi = 2.0f*M_PI*r1;
     uphi->sinphi = sin(phi);
     uphi->cosphi = cos(phi);
     
@@ -1429,7 +1429,7 @@ void uphi21(struct Uphi *uphi,
     uphi->B = stack.v[np];
     uphi->C = stack.w[np];
     
-    float sinps2 = pow(uphi->A, 2.0) + pow(uphi->B, 2.0);
+    double sinps2 = pow(uphi->A, 2.0) + pow(uphi->B, 2.0);
     
     /* Small polar change */
     if (sinps2 < 1.0E-20) {
@@ -1438,11 +1438,11 @@ void uphi21(struct Uphi *uphi,
         stack.w[np] = uphi->C*costhe;
     }
     else {
-        float sinpsi = sqrt(sinps2);
-        float us = sinthe*uphi->cosphi;
-        float vs = sinthe*uphi->sinphi;
-        float sindel = uphi->B/sinpsi;
-        float cosdel = uphi->A/sinpsi;
+        double sinpsi = sqrt(sinps2);
+        double us = sinthe*uphi->cosphi;
+        double vs = sinthe*uphi->sinphi;
+        double sindel = uphi->B/sinpsi;
+        double cosdel = uphi->A/sinpsi;
         
         stack.u[np] = uphi->C*cosdel*us - sindel*vs + uphi->A*costhe;
         stack.v[np] = uphi->C*sindel*us + cosdel*vs + uphi->B*costhe;
@@ -1521,7 +1521,7 @@ void ausgab(double edep) {
     
     int np = stack.np;
     int irl = stack.ir[np];
-    float endep = stack.wt[np]*edep;
+    double endep = stack.wt[np]*edep;
     
     /* Deposit particle energy on spot */
     score.endep[irl] += endep;
@@ -3091,11 +3091,11 @@ void initPairData() {
         // The following is the calculation of the composite factor for angular
         // distributions, as carried out in $INITIALIZE-PAIR-ANGLE macro. It
         // corresponds to ( (1/111)*Zeff**(1/3) )**2
-        float zbrang = 0.0;
-        float pznorm = 0.0;
+        double zbrang = 0.0;
+        double pznorm = 0.0;
         
         for (int i = 0; i<pegs_data.ne[imed]; i++) {
-            zbrang += (float)
+            zbrang += (double)
             (pegs_data.elements[imed][i].pz)*
             (pegs_data.elements[imed][i].z)*
             ((pegs_data.elements[imed][i].z) + 1.0f);
@@ -3529,8 +3529,8 @@ void pair(int imed) {
             }
             else {
                 /* Use the (br-1/2)^2 part */
-                float rnno2 = setRandom();
-                float rnno3 = setRandom();
+                double rnno2 = setRandom();
+                double rnno3 = setRandom();
                 br = 0.5*(1.0 - fmax(fmax(rnno1, rnno2), rnno3));
                 rejmax = Amax;
                 l1 = l;
@@ -4862,7 +4862,9 @@ double spline(double s, double *x, double *a, double *b, double *c,
 
 void electron() {
     
-    /* for the moment just discard electron */
+    /* for the moment just discard electron and deposit its energy on spot */
+    double edep = stack.e[stack.np];
+    ausgab(edep);
     stack.np -= 1;
     
     return;
