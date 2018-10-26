@@ -127,6 +127,8 @@ struct Score score;
 void initScore(void);
 void cleanScore(void);
 void ausgab(double edep);
+void accumEndep(void);
+void outputResults(char *output_file, int iout);
 
 /******************************************************************************/
 /* Stack definition */
@@ -304,7 +306,6 @@ struct Rayleigh rayleigh_data;
 void initRayleighData(void);
 void readFfData(double *xval, double **aff);
 void cleanRayleigh(void);
-void rayleigh(int imed, double eig, double gle, int lgle);
 
 /******************************************************************************/
 /* Pair data definition */
@@ -330,15 +331,22 @@ void initPairData(void);
 double fcoulc(double zi);
 double xsif(double zi, double fc);
 void cleanPair(void);
-void pair(int imed);
-double setPairRejectionFunction(int imed, double xi, double esedei,
-                                double eseder, double tteig);
 
 /******************************************************************************/
 /* Photon transport process */
 #define SGMFP 1E-05 // smallest gamma mean free path
 
 void photon(void);
+
+void rayleigh(int imed, double eig, double gle, int lgle);
+
+double setPairRejectionFunction(int imed, double xi, double esedei,
+                                double eseder, double tteig);
+void pair(int imed);
+
+void compton(void);
+
+void photo(void);
 
 /******************************************************************************/
 /* Electron data definition */
@@ -471,6 +479,14 @@ void howfar(int *idisc, int *irnew, double *ustep);
 double hownear(void);
 
 /******************************************************************************/
+/* ompMC simulation control settings */
+struct oMC {
+    int nhist;
+    int nbatch;
+};
+struct oMC omc;
+
+/******************************************************************************/
 /* ompMC main function */
 int main (int argc, char **argv) {
     
@@ -519,12 +535,14 @@ int main (int argc, char **argv) {
                 break;
                 
             case 'i':
-                input_file = optarg;
+                input_file = malloc(strlen(optarg) + 1);
+                strcpy(input_file, optarg);
                 printf ("option -i with value `%s'\n", input_file);
                 break;
                 
             case 'o':
-                output_file = optarg;
+                output_file = malloc(strlen(optarg) + 1);
+                strcpy(output_file, optarg);
                 printf ("option -o with value `%s'\n", output_file);
                 break;
             
@@ -584,32 +602,32 @@ int main (int argc, char **argv) {
         printf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    int nhist = atoi(buffer);
+    omc.nhist = atoi(buffer);
     
     if (getInputValue(buffer, "nbatch") != 1) {
         printf("Can not find 'nbatch' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    int nbatch = atoi(buffer);
+    omc.nbatch = atoi(buffer);
     
-    if (nhist/nbatch == 0) {
-        nhist = nbatch;
+    if (omc.nhist/omc.nbatch == 0) {
+        omc.nhist = omc.nbatch;
     }
     
-    int nperbatch = nhist/nbatch;
-    nhist = nperbatch*nbatch;
+    int nperbatch = omc.nhist/omc.nbatch;
+    omc.nhist = nperbatch*omc.nbatch;
     
     int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
     
-    printf("Total number of particle histories: %d\n", nhist);
-    printf("Number of statistical batches: %d\n", nbatch);
+    printf("Total number of particle histories: %d\n", omc.nhist);
+    printf("Number of statistical batches: %d\n", omc.nbatch);
     printf("Histories per batch: %d\n", nperbatch);
     
     /* Execution time up to this point */
     printf("Execution time up to this point : %8.5f seconds\n",
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
-    for (int ibatch=0; ibatch<nbatch; ibatch++) {
+    for (int ibatch=0; ibatch<omc.nbatch; ibatch++) {
         if (ibatch == 0) {
             /* Print header for information during simulation */
             printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
@@ -622,8 +640,6 @@ int main (int argc, char **argv) {
             printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
                    (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
             
-            /* Reset deposited energy array for each batch */
-            memset(score.endep, 0.0, (gridsize + 1)*sizeof(double));
         }
         
         for (int ihist=0; ihist<nperbatch; ihist++) {
@@ -634,8 +650,31 @@ int main (int argc, char **argv) {
             shower();
         }
         
+        /* Accumulate results of current batch for statistical analysis */
+        accumEndep();
     }
-        
+    
+    /* Print some output and execution time up to this point */
+    printf("Simulation finished\n");
+    printf("Execution time up to this point : %8.5f seconds\n",
+           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
+    
+    /* Analysis and output of results */
+    if (verbose_flag) {
+        /* Sum energy deposition in the phantom */
+        double etot = 0.0;
+        for (int irl=1; irl<gridsize+1; irl++) {
+            etot += score.accum_endep[irl];
+        }
+        printf("Fraction of incident energy deposited in the phantom: %5.3f\n",
+               etot/score.ensrc);
+        printf("Fraction of incident energy that escaped the phantom: %5.3f\n",
+               score.accum_endep[0]/score.ensrc);
+    }
+    
+    int iout = 1;   /* i.e. deposit mean dose per particle fluence */
+    outputResults(output_file, iout);
+    
     /* Cleaning */
     cleanPhantom();
     cleanPhoton();
@@ -657,12 +696,17 @@ int main (int argc, char **argv) {
     exit (EXIT_SUCCESS);
 }
 
-void parseInputFile(char *file_name) {
+void parseInputFile(char *input_file) {
     
     char buf[120];      // support lines up to 120 characters
     
-    FILE *fp;
+    /* Make space for the new string */
+    char *extension = ".inp";
+    char* file_name = malloc(strlen(input_file) + strlen(extension) + 1);
+    strcpy(file_name, input_file);
+    strcat(file_name, extension); /* add the extension */
     
+    FILE *fp;
     if ((fp = fopen(file_name, "r")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -782,9 +826,9 @@ void initPhantom() {
            &geometry.jsize, &geometry.ksize);
     
     /* Read voxel boundaries on each direction */
-    geometry.xbounds = malloc(geometry.isize*sizeof(double));
-    geometry.ybounds = malloc(geometry.jsize*sizeof(double));
-    geometry.zbounds = malloc(geometry.ksize*sizeof(double));
+    geometry.xbounds = malloc((geometry.isize + 1)*sizeof(double));
+    geometry.ybounds = malloc((geometry.jsize + 1)*sizeof(double));
+    geometry.zbounds = malloc((geometry.ksize + 1)*sizeof(double));
     
     for (int i=0; i<=geometry.isize; i++) {
         fscanf(fp, "%lf", &geometry.xbounds[i]);
@@ -1517,6 +1561,159 @@ void cleanScore() {
     return;
 }
 
+void accumEndep() {
+    
+    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
+    
+    /* Accumulate endep and endep squared for statistical analysis */
+    double edep = 0.0;
+    
+    for (int irl=0; irl<gridsize + 1; irl++) {
+        edep = score.endep[irl];
+        
+        score.accum_endep[irl] += edep;
+        score.accum_endep2[irl] += pow(edep, 2.0);
+    }
+    
+    /* Clean scoring array */
+    memset(score.endep, 0.0, (gridsize + 1)*sizeof(double));
+    
+    return;
+}
+
+void outputResults(char *output_file, int iout) {
+    
+    int irl;
+    int imax = geometry.isize;
+    int ijmax = geometry.isize*geometry.jsize;
+    double endep, endep2, unc_endep;
+
+    /* Calculate incident fluence */
+    double inc_fluence = 0.0;
+    double beam_area = source.xsize*source.ysize;
+    double mass;
+    
+    if (beam_area == 0.0) {
+        inc_fluence = (double)omc.nhist;
+    }
+    else {
+        inc_fluence = (double)omc.nhist/beam_area;
+    }
+    
+    for (int iz=0; iz<geometry.ksize; iz++) {
+        for (int iy=0; iy<geometry.jsize; iy++) {
+            for (int ix=0; ix<geometry.isize; ix++) {
+                irl = 1 + ix + iy*imax + iz*ijmax;
+                endep = score.accum_endep[irl];
+                endep2 = score.accum_endep2[irl];
+                
+                /* First calculate mean deposited energy across batches and its
+                 uncertainty */
+                endep /= (double)omc.nbatch;
+                endep2 /= (double)omc.nbatch;
+                
+                /* Batch approach uncertainty calculation */
+                if (endep != 0.0) {
+                    unc_endep = endep2 - pow(endep, 2.0);
+                    unc_endep /= (double)(omc.nbatch - 1);
+                    
+                    /* Relative uncertainty */
+                    unc_endep = sqrt(unc_endep)/endep;
+                }
+                else {
+                    endep = 0.0;
+                    unc_endep = 0.9999999;
+                }
+                
+                /* We separate de calculation of dose, to give the user the
+                 option to output mean energy (iout=0) or deposited dose
+                 (iout=1) per incident fluence */
+                
+                if (iout) {
+                    
+                    /* Convert deposited energy to dose */
+                    mass = (geometry.xbounds[ix+1] - geometry.xbounds[ix])*
+                        (geometry.ybounds[iy+1] - geometry.ybounds[iy])*
+                        (geometry.zbounds[iz+1] - geometry.zbounds[iz]);
+                    
+                    /* Transform deposited energy to Gy */
+                    mass *= pegs_data.rho[region.med[irl]];
+                    endep *= 1.602E-10/(mass*inc_fluence);
+                    
+                } else {    /* Output mean deposited energy */
+                    endep /= inc_fluence;
+                }
+                
+                /* Store output quantities */
+                score.accum_endep[irl] = endep;
+                score.accum_endep2[irl] = unc_endep;
+            }
+        }
+    }
+    
+    /* Output to file */
+    char extension[15];
+    if (iout) {
+        strcpy(extension, ".3ddose");
+    } else {
+        strcpy(extension, ".3denergy");
+    }
+    
+    /* Make space for the new string */
+    char* file_name = malloc(strlen(output_file) + strlen(extension) + 1);
+    strcpy(file_name, output_file);
+    strcat(file_name, extension); /* add the extension */
+    
+    FILE *fp;
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    /* Grid dimensions */
+    fprintf(fp, "%5d%5d%5d\n",
+            geometry.isize, geometry.jsize, geometry.ksize);
+    
+    /* Boundaries in x-, y- and z-directions */
+    for (int ix = 0; ix<=geometry.isize; ix++) {
+        fprintf(fp, "%f ", geometry.xbounds[ix]);
+    }
+    fprintf(fp, "\n");
+    for (int iy = 0; iy<=geometry.jsize; iy++) {
+        fprintf(fp, "%f ", geometry.ybounds[iy]);
+    }
+    fprintf(fp, "\n");
+    for (int iz = 0; iz<=geometry.ksize; iz++) {
+        fprintf(fp, "%f ", geometry.zbounds[iz]);
+    }
+    fprintf(fp, "\n");
+    
+    /* Dose or energy array */
+    for (int iz=0; iz<geometry.ksize; iz++) {
+        for (int iy=0; iy<geometry.jsize; iy++) {
+            for (int ix=0; ix<geometry.isize; ix++) {
+                irl = 1 + ix + iy*imax + iz*ijmax;
+                fprintf(fp, "%e ", score.accum_endep[irl]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    /* Uncertainty array */
+    for (int iz=0; iz<geometry.ksize; iz++) {
+        for (int iy=0; iy<geometry.jsize; iy++) {
+            for (int ix=0; ix<geometry.isize; ix++) {
+                irl = 1 + ix + iy*imax + iz*ijmax;
+                fprintf(fp, "%f ", score.accum_endep2[irl]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    fclose(fp);
+    return;
+}
+
 void ausgab(double edep) {
     
     int np = stack.np;
@@ -1551,7 +1748,7 @@ void initStack() {
 void initHistory() {
     
     /* Initialize first particle of the stack from source data */
-    stack.np = 0;   // it should be zero anyway if initStack() was called before
+    stack.np = 0;
     stack.iq[stack.np] = source.charge;
     
     /* Get primary particle energy */
@@ -3231,7 +3428,7 @@ void photon() {
     double eig = stack.e[np];       // energy of incident gamma
     
     /* First check for photon cutoff energy */
-    if (eig <= region.pcut[imed]) {
+    if (eig <= region.pcut[irl]) {
         edep = eig;
         
         /* Deposit energy on the spot */
@@ -3324,7 +3521,7 @@ void photon() {
                 imed = region.med[irl];
             }
 
-            if (eig <= region.pcut[imed]) {
+            if (eig <= region.pcut[irl]) {
                 edep = eig;
                 
                 /* Deposit energy on the spot */
@@ -3369,10 +3566,34 @@ void photon() {
                 return;
             }
         }
+        
+        /* gbr2 = (pair + compton)/gtotal */
+        double gbr2 = pwlfEval(imed*MXGE + lgle, gle,
+                               photon_data.gbr21, photon_data.gbr20);
+        
+        if (rnno < gbr2) {
+            /* It was compton */
+            compton();
+            
+            np = stack.np;
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
+        else {
+            /* It was photoelectric */
+            photo();
+            
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
     }
     
-    /* for the moment just discard photon */
-    stack.np -= 1;
+    /* If here, photon is the lowest energy particle. The particle exits
+     this function and re-enters to resume transport process */
     
     return;
 }
@@ -3672,6 +3893,180 @@ void pair(int imed) {
     return;
 }
 
+void compton() {
+    
+    int np = stack.np;
+    double eig = stack.e[np];
+    double ko = stack.e[np]/RM;
+    double broi = 1.0 + 2.0*ko;
+    double bro = 1.0/broi;
+    
+    /* Sampling of the Klein-Nishina scattering angle */
+    int first_time = 1; /* i.e. true */
+    double sinthe = 0.0;
+    double costhe = 0.0;
+    double br;  /* scattered photon energy fraction */
+    
+    double rnno1, rnno2, rnno3;
+    
+    double aux;
+    double rejf3;   /* rejection function */
+    double temp;    /* aux. variable for polar angle calculation */
+    
+    double alph1 = 0.0;    /* probability for the 1/br part */
+    double alph2 = 0.0;    /* probability for the br part */
+    double alpha = 0.0;
+    double rejmax = 0.0;   /* max. of rejf3 in the case of uniform sampling */
+
+    do {
+        if(ko > 2.0) {
+            /* At high energies the original EGS4 method is more efficient */
+            if (first_time){
+                alph1 = log(broi);
+                alph2 = ko*(broi + 1.0)*pow(bro, 2.0);
+                alpha = alph1 + alph2;
+            }
+            do {
+                rnno1 = setRandom();
+                rnno2 = setRandom();
+                
+                if(rnno1*alpha < alph1) {
+                    /* use 1/br part */
+                    br = exp(alph1*rnno2)*bro;
+                }
+                else {
+                    /* use the br part */
+                    br = sqrt(rnno2*pow(broi, 2.0) + (1.0 - rnno2))*bro;
+                }
+                
+                temp = (1.0 - br)/(ko*br);
+                sinthe = fmax(0.0, temp*(2.0 - temp));
+                aux = 1.0 + pow(br, 2.0);
+                rejf3 = aux - br*sinthe;
+                
+                rnno3 = setRandom();
+            } while(rnno3*aux > rejf3);
+        }
+        else {
+            /* At low energies it is faster to sample br uniformely */
+            if(first_time) {
+                rejmax = broi + bro;
+            }
+            do {
+                rnno1 = setRandom();
+                rnno2 = setRandom();
+                
+                br = bro + (1.0 - bro)*rnno1;
+                temp = (1.0 - br)/(ko*br);
+                sinthe = fmax(0.0, temp*(2.0 - temp));
+                
+                rejf3 = 1.0 + pow(br, 2.0) - br*sinthe;
+            } while(rnno2*br*rejmax > rejf3);
+        }
+        
+        first_time = 0; /* i.e. false */
+    } while((br < bro) || (br > 1));
+
+    costhe = 1.0 - temp;
+    sinthe = sqrt(sinthe);
+    
+    double esg = br*eig;            /* new energy of the photon */
+    double ese = eig - esg + RM;    /* energy of the electron */
+    stack.e[np] = esg;  /* change of energy */
+    
+    /* Adjust direction of photon */
+    struct Uphi uphi;
+    uphi21(&uphi, costhe, sinthe);
+    
+    /* Adding new electron to stack. Update stack counter for uphi32() */
+    np += 1;
+    stack.np = np;
+    
+    /* Adjust direction of new electron */
+    aux = 1.0 + pow(br, 2.0) - 2.0*br*costhe;
+    if(aux > 1.0E-8) {
+        costhe = (1.0 - br*costhe)/sqrt(aux);
+        sinthe = (1.0 - costhe)*(1.0 + costhe);
+        if(sinthe > 0.0) {
+            sinthe = -sqrt(sinthe);
+        }
+        else {
+            sinthe = 0.0;
+        }
+    }
+    else {
+        costhe = 0.0;
+        sinthe = -1.0;
+    }
+    
+    uphi32(&uphi, costhe, sinthe);
+    stack.e[np] = ese;
+    stack.iq[np] = -1;
+    
+    return;
+}
+
+void photo() {
+    
+    int np = stack.np;
+    
+    /* Set energy and charge of the new electron */
+    stack.e[np] += RM;
+    stack.iq[np] = -1;
+    
+    /* Now sample photo-electron direction */
+    double eelec = stack.e[np];
+    
+    if (eelec > region.ecut[stack.ir[np]]){
+        /* Velocity of electron in c units */
+        double beta = sqrt((eelec - RM)*(eelec + RM))/eelec;
+        
+        double costhe;
+        double sinthe;
+        double sinth2;
+        double gamma = eelec/RM;
+        double alpha = 0.5*gamma - 0.5 + 1.0/gamma; /* kinematic factor */
+        double ratio = beta/alpha;
+        double rnpht2;
+        double xi;
+        
+        do {
+            double rnpht = setRandom();
+            rnpht = 2.0*rnpht - 1.0;
+            if (ratio <= 0.2){
+                double fkappa = rnpht + 0.5*ratio*(1.0 - rnpht)*(1.0 + rnpht);
+                if (gamma < 100.0) {
+                    costhe = (beta + fkappa)/(1.0 + beta*fkappa);
+                }
+                else {
+                    if (fkappa > 0.0) {
+                        costhe = 1.0 - (1.0 - fkappa)*(gamma - 3.0)/
+                            (2.0*(1.0 + fkappa)*pow((gamma-1.0), 3.0));
+                    }
+                    else {
+                        costhe = (beta + fkappa)/(1.0 + beta*fkappa);
+                    }
+                }
+                xi = (1.0 + beta*fkappa)*pow(gamma, 2.0);
+            }
+            else {
+                xi = pow(gamma, 2.0)*(1.0 + alpha*(sqrt(1.0f
+                        + ratio*(2.0*rnpht + ratio)) - 1.0));
+                costhe = (1.0 - 1.0/xi)/beta;
+            }
+            sinth2 = fmax((1.0 - costhe)*(1.0 + costhe), 0.0);
+            rnpht2 = setRandom();
+        } while(rnpht2 > 0.5*(1.0 + gamma)*sinth2*xi/gamma);
+        
+        sinthe = sqrt(sinth2);
+        
+        struct Uphi uphi;
+        uphi21(&uphi, costhe, sinthe);
+    }
+    
+    return;
+}
+
 void initMscatData() {
     
     int nmed = geometry.nmed;
@@ -3684,7 +4079,7 @@ void initMscatData() {
         electron_data.blcc[imed] = 1.16699413758864573*electron_data.blcc[imed];
         
         /* Take its square as this is employed throughout */
-        electron_data.xcc[imed] = pow(electron_data.xcc[imed], 2);
+        electron_data.xcc[imed] = pow(electron_data.xcc[imed], 2.0);
     }
     
     /* Initialize data for spin effects */
@@ -3790,8 +4185,8 @@ void initMscatData() {
              and a power series expansion of the integral */
             eke = 0.5*(eip1 + ei);
             elke = log(eke);
-            lelke = (int)(electron_data.eke1[imed]*elke + electron_data.eke0[imed]) -
-            1;
+            lelke = (int)(electron_data.eke1[imed]*elke +
+                          electron_data.eke0[imed]) - 1;
             ededx = electron_data.pdedx1[imed*MXEKE + lelke]*elke +
                 electron_data.pdedx0[imed*MXEKE + lelke];
             aux = electron_data.pdedx1[imed*MXEKE + i - 1]/ededx;
@@ -3847,7 +4242,8 @@ void initMscatData() {
             if (ekef <= electron_data.e_array[imed*MXEKE]) {
                 sip1 = (electron_data.e_array[imed*MXEKE] - ekef)/dedx0;
                 ekef = electron_data.e_array[imed*MXEKE];
-                elkef = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+                elkef = (1.0 -
+                         electron_data.eke0[imed])/electron_data.eke1[imed];
                 lelkef = 0;
             }
             else{
@@ -4863,7 +5259,7 @@ double spline(double s, double *x, double *a, double *b, double *c,
 void electron() {
     
     /* for the moment just discard electron and deposit its energy on spot */
-    double edep = stack.e[stack.np];
+    double edep = stack.e[stack.np] - RM;
     ausgab(edep);
     stack.np -= 1;
     

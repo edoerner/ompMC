@@ -1,25 +1,25 @@
 # start source definition      
-mono energy = 6
-spectrum file = ./spectra/var_6MV.spectrum
+mono energy = 0.100
+spectrum file = ./spectra/250.spectrum
 charge = 0
 collimator bounds = -2.5 2.5 -2.5 2.5
 ssd = 90.0
 # end source definition
                               
 # start MC control          
-ncase  = 5000
+ncase  = 10000000
 nbatch = 10
 rng seeds = 97 33
 # stop MC control           
                               
 # start geometry
 method of input = phantom
-phantom file = ./phantoms/h2o_phantom.egsphant
+phantom file = ./phantoms/air_bone_interface.egsphant
 # stop geometry         
                               
 # start MC transport
 photon xsection = ./data/xcom
-pegs file = ./pegs4/521icru.pegs4dat
-global ecut = 0.521
+pegs file = ./pegs4/700icru.pegs4dat
+global ecut = 0.700
 global pcut = 0.010         
 # stop MC transport
