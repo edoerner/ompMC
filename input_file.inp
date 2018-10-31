@@ -1,6 +1,6 @@
 # start source definition      
 mono energy = 0.100
-spectrum file = ./spectra/250.spectrum
+spectrum file = ./spectra/var_6MV.spectrum
 charge = 0
 collimator bounds = -2.5 2.5 -2.5 2.5
 ssd = 90.0

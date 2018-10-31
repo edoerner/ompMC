@@ -291,7 +291,6 @@ void cleanPhoton(void);
 #define TWICE_HC2   0.000307444456
 
 struct Rayleigh {
-    double *ff;
     double *xgrid;
     double *fcum;
     double *b_array;
@@ -2451,7 +2450,7 @@ void initPhotonData() {
                                     z_sorted, pz_sorted,
                                     photon_data.ge0[i], photon_data.ge1[i]);
         double *sig_triplet = get_data(2, pegs_data.ne[i], triplet_ndat,
-                                       triplet_xsec_data0, triplet_xsec_data0,
+                                       triplet_xsec_data0, triplet_xsec_data1,
                                        z_sorted, pz_sorted,
                                        photon_data.ge0[i], photon_data.ge1[i]);
         
@@ -2543,46 +2542,61 @@ void initPhotonData() {
     free(triplet_xsec_data0);
     free(triplet_xsec_data1);
     
-    /* Print information for debugging purposes*/
     if(verbose_flag) {
-        printf("Listing photon data: \n");
+        /* List photon data to output file */
+        FILE *fp;
+        char *file_name = "./output/photon_data.lst";
+        
+        if ((fp = fopen(file_name, "w")) == NULL) {
+            printf("Unable to open file: %s\n", file_name);
+            exit(EXIT_FAILURE);
+        }
+        fprintf(fp, "Listing photon data: \n");
         for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
-            printf("\t ge0 = %f, ge1 = %f\n", photon_data.ge0[i], photon_data.ge1[i]);
+            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
+            fprintf(fp, "photon_data.ge = \n");
+            fprintf(fp, "\t ge0[%d] = %15.5f, ge1[%d] = %15.5f\n", i,
+                    photon_data.ge0[i], i, photon_data.ge1[i]);
             
-            printf("gmfp = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "photon_data.gmfp = \n");
+            for (int j=0; j<MXGE; j++) {
                 int idx = i*MXGE + j;
-                printf("gmfp0 = %f, gmfp1 = %f\n", photon_data.gmfp0[idx],
-                       photon_data.gmfp1[idx]);
+                fprintf(fp, "gmfp0[%d][%d] = %15.5f, gmfp1[%d][%d] = %15.5f\n",
+                        j, i, photon_data.gmfp0[idx],
+                        j, i, photon_data.gmfp1[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("gbr1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "photon_data.gbr1 = \n");
+            for (int j=0; j<MXGE; j++) {
                 int idx = i*MXGE + j;
-                printf("gbr10 = %f, gbr11 = %f\n", photon_data.gbr10[idx],
-                       photon_data.gbr11[idx]);
+                fprintf(fp, "gbr10[%d][%d] = %15.5f, gbr11[%d][%d] = %15.5f\n",
+                        j, i, photon_data.gbr10[idx],
+                        j, i, photon_data.gbr11[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("gbr2 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "photon_data.gbr2 = \n");
+            for (int j=0; j<MXGE; j++) {
                 int idx = i*MXGE + j;
-                printf("gbr20 = %f, gbr21 = %f\n", photon_data.gbr20[idx],
-                       photon_data.gbr21[idx]);
+                fprintf(fp, "gbr20[%d][%d] = %15.5f, gbr21[%d][%d] = %15.5f\n",
+                        j, i, photon_data.gbr20[idx],
+                        j, i, photon_data.gbr21[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("cohe = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "photon_data.cohe = \n");
+            for (int j=0; j<MXGE; j++) {
                 int idx = i*MXGE + j;
-                printf("cohe0 = %f, cohe1 = %f\n", photon_data.cohe0[idx],
-                       photon_data.cohe1[idx]);
+                fprintf(fp, "cohe0[%d][%d] = %15.5f, cohe1[%d][%d] = %15.5f\n",
+                        j, i, photon_data.cohe0[idx],
+                        j, i, photon_data.cohe1[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
         }
+        
+        fclose(fp);
     }
     return;
 }
@@ -2861,7 +2875,9 @@ void initRayleighData(void) {
     
     double *xval = (double*) malloc(MXRAYFF*sizeof(double));
     double **aff = (double**) malloc(MXELEMENT*sizeof(double*));
-    
+    double *ff = malloc(MXRAYFF*geometry.nmed*sizeof(double));
+    double *pe_array = malloc(MXGE*geometry.nmed*sizeof(double));
+
     for (int i=0; i<MXELEMENT; i++) {
         aff[i] = malloc(MXRAYFF*sizeof(double));
     }
@@ -2870,13 +2886,11 @@ void initRayleighData(void) {
     readFfData(xval, aff);
     
     /* Allocate memory for Rayleigh data */
-    rayleigh_data.ff = malloc(MXRAYFF*geometry.nmed*sizeof(double));
     rayleigh_data.xgrid = malloc(MXRAYFF*geometry.nmed*sizeof(double));
     rayleigh_data.fcum = malloc(MXRAYFF*geometry.nmed*sizeof(double));
     rayleigh_data.b_array = malloc(MXRAYFF*geometry.nmed*sizeof(double));
     rayleigh_data.c_array = malloc(MXRAYFF*geometry.nmed*sizeof(double));
     rayleigh_data.i_array = malloc(RAYCDFSIZE*geometry.nmed*sizeof(int));
-    rayleigh_data.pe_array = malloc(MXGE*geometry.nmed*sizeof(double));
     rayleigh_data.pmax0 = malloc(MXGE*geometry.nmed*sizeof(double));
     rayleigh_data.pmax1 = malloc(MXGE*geometry.nmed*sizeof(double));
     
@@ -2891,7 +2905,7 @@ void initRayleighData(void) {
                 ff_val += pegs_data.elements[i][k].pz * pow(aff[z][j],2);
             }
             
-            rayleigh_data.ff[i*MXRAYFF + j] = sqrt(ff_val);
+            ff[i*MXRAYFF + j] = sqrt(ff_val);
         }
         
         if (rayleigh_data.xgrid[i*MXRAYFF] < 1.0E-6) {
@@ -2905,9 +2919,9 @@ void initRayleighData(void) {
         
         /* The following is to avoid log(0) */
         for (int j=0; j<MXRAYFF; j++) {
-            if (*((unsigned long*)&rayleigh_data.ff[i*MXRAYFF + j]) == 0) {
+            if (*((unsigned long*)&ff[i*MXRAYFF + j]) == 0) {
                 unsigned long zero = 1;
-                rayleigh_data.ff[i*MXRAYFF + j] = *((double*)&zero);
+                ff[i*MXRAYFF + j] = *((double*)&zero);
             }
         }
         
@@ -2916,8 +2930,8 @@ void initRayleighData(void) {
         rayleigh_data.fcum[i*MXRAYFF] = 0.0;
         
         for (int j=0; j < MXRAYFF-1; j++) {
-            double b = log(rayleigh_data.ff[i*MXRAYFF + j + 1]
-                           /rayleigh_data.ff[i*MXRAYFF + j])
+            double b = log(ff[i*MXRAYFF + j + 1]
+                           /ff[i*MXRAYFF + j])
                                 /log(rayleigh_data.xgrid[i*MXRAYFF + j + 1]
                                 /rayleigh_data.xgrid[i*MXRAYFF + j]);
             rayleigh_data.b_array[i*MXRAYFF + j] = b;
@@ -2925,7 +2939,7 @@ void initRayleighData(void) {
             double x2 = rayleigh_data.xgrid[i*MXRAYFF + j + 1];
             double pow_x1 = pow(x1, 2.0*b);
             double pow_x2 = pow(x2, 2.0*b);
-            sum0 += pow(rayleigh_data.ff[i*MXRAYFF + j],2)
+            sum0 += pow(ff[i*MXRAYFF + j],2)
                 *(pow(x2,2)*pow_x2 - pow(x1,2)*pow_x1)/((1.0 + b)*pow_x1);
             rayleigh_data.fcum[i*MXRAYFF + j + 1] = sum0;
         }
@@ -2951,9 +2965,9 @@ void initRayleighData(void) {
             double x2 = xmax;
             double pow_x1 = pow(x1, 2.0 * b);
             double pow_x2 = pow(x2, 2.0 * b);
-            rayleigh_data.pe_array[i*MXGE + j - 1] =
+            pe_array[i*MXGE + j - 1] =
                 rayleigh_data.fcum[i*MXRAYFF + idx - 1] +
-                pow(rayleigh_data.ff[i * MXRAYFF + idx - 1], 2) *
+                pow(ff[i * MXRAYFF + idx - 1], 2) *
                 (pow(x2,2)*pow_x2 - pow(x1,2)*pow_x1)/((1.0 + b)*pow_x1);
             
         }
@@ -2963,23 +2977,23 @@ void initRayleighData(void) {
         /* Now renormalize data so that pe_array(emax) = 1. Note that we make
          pe_array(j) slightly larger so that fcum(xmax) is never underestimated
          when interpolating */
-        double anorm = 1.0/sqrt(rayleigh_data.pe_array[i*MXGE + MXGE - 1]);
-        double anorm1 = 1.005/rayleigh_data.pe_array[i*MXGE + MXGE - 1];
-        double anorm2 = 1.0/rayleigh_data.pe_array[i*MXGE + MXGE - 1];
+        double anorm = 1.0/sqrt(pe_array[i*MXGE + MXGE - 1]);
+        double anorm1 = 1.005/pe_array[i*MXGE + MXGE - 1];
+        double anorm2 = 1.0/pe_array[i*MXGE + MXGE - 1];
         
         for (int j=0; j<MXGE; j++) {
-            rayleigh_data.pe_array[i*MXGE + j] *= anorm1;
-            if (rayleigh_data.pe_array[i*MXGE + j] > 1.0) {
-                rayleigh_data.pe_array[i*MXGE + j] = 1.0;
+            pe_array[i*MXGE + j] *= anorm1;
+            if (pe_array[i*MXGE + j] > 1.0) {
+                pe_array[i*MXGE + j] = 1.0;
             }
         }
         
         for (int j=0; j<MXRAYFF; j++) {
-            rayleigh_data.ff[i*MXRAYFF + j] *= anorm;
+            ff[i*MXRAYFF + j] *= anorm;
             rayleigh_data.fcum[i*MXRAYFF + j] *= anorm2;
             rayleigh_data.c_array[i*MXRAYFF + j] = (1.0 +
                 rayleigh_data.b_array[i*MXRAYFF + j])/
-            pow(rayleigh_data.xgrid[i*MXRAYFF + j]*rayleigh_data.ff[i*MXRAYFF + j],2);
+            pow(rayleigh_data.xgrid[i*MXRAYFF + j]*ff[i*MXRAYFF + j],2);
         }
         
         /* Now prepare uniform cumulative bins */
@@ -2998,11 +3012,11 @@ void initRayleighData(void) {
                 double x2 = rayleigh_data.xgrid[i*MXRAYFF + ibin];
                 double t = pow(x1, 2)*pow(x1, 2.0*b);
                 double pow_x2 = pow(x2, 2.0*b);
-                double aux = pow(rayleigh_data.ff[i*MXRAYFF + ibin - 1], 2)*
+                double aux = pow(ff[i*MXRAYFF + ibin - 1], 2)*
                     (pow(x2, 2)*pow_x2 - t)/((1.0 + b)*pow_x1);
                 if (aux > w) {
                     xold = exp(log(t + w*(1.0 + b)*pow_x1/
-                                   pow(rayleigh_data.ff[i*MXRAYFF + ibin - 1], 2))/
+                                   pow(ff[i*MXRAYFF + ibin - 1], 2))/
                                (2.0 + 2.0*b));
                     rayleigh_data.i_array[i*RAYCDFSIZE + j - 1] = ibin;
                     break;
@@ -3025,9 +3039,9 @@ void initRayleighData(void) {
         /* Prepare coefficients for pmax interpolation */
         for (int j=0; j<MXGE-1; j++) {
             double gle = ((j+1) - photon_data.ge0[i])/photon_data.ge1[i];
-            rayleigh_data.pmax1[i*MXGE + j] = (rayleigh_data.pe_array[i*MXGE + j + 1] -
-                rayleigh_data.pe_array[i * MXGE + j])*photon_data.ge1[i];
-            rayleigh_data.pmax0[i*MXGE + j] = rayleigh_data.pe_array[i*MXGE + j] -
+            rayleigh_data.pmax1[i*MXGE + j] = (pe_array[i*MXGE + j + 1] -
+                pe_array[i * MXGE + j])*photon_data.ge1[i];
+            rayleigh_data.pmax0[i*MXGE + j] = pe_array[i*MXGE + j] -
                 rayleigh_data.pmax1[i * MXGE + j]*gle;
         }
         rayleigh_data.pmax0[i*MXGE + MXGE - 1] = rayleigh_data.pmax0[i*MXGE + MXGE - 2];
@@ -3036,75 +3050,77 @@ void initRayleighData(void) {
     
     /* Cleaning */
     free(xval);
+    free(ff);
+    free(pe_array);
     for (int i=0; i<MXELEMENT; i++) {
         free(aff[i]);
     }
     free(aff);
     
-    /* Print information for debugging purposes*/
     if(verbose_flag) {
-        printf("Listing rayleigh data: \n");
+        /* List rayleigh data to output file */
+        FILE *fp;
+        char *file_name = "./output/rayleigh_data.lst";
+        
+        if ((fp = fopen(file_name, "w")) == NULL) {
+            printf("Unable to open file: %s\n", file_name);
+            exit(EXIT_FAILURE);
+        }
+        fprintf(fp, "Listing rayleigh data: \n");
         for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
+            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
             
-            printf("ff = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.xgrid\n");
+            for (int j=0; j<MXRAYFF; j++) {
                 int idx = i*MXRAYFF + j;
-                printf("ff = %f\n", rayleigh_data.ff[idx]);
+                fprintf(fp, "xgrid[%d][%d] = %10.5f\n", j, i,
+                        rayleigh_data.xgrid[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("xgrid = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.fcum\n");
+            for (int j=0; j<MXRAYFF; j++) {
                 int idx = i*MXRAYFF + j;
-                printf("xgrid = %f\n", rayleigh_data.xgrid[idx]);
+                fprintf(fp, "fcum[%d][%d] = %10.5f\n", j, i,
+                        rayleigh_data.fcum[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("fcum = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.b_array\n");
+            for (int j=0; j<MXRAYFF; j++) { // print just 5 first values
                 int idx = i*MXRAYFF + j;
-                printf("fcum = %f\n", rayleigh_data.fcum[idx]);
+                fprintf(fp, "b_array[%d][%d] = %10.5f\n", j, i,
+                        rayleigh_data.b_array[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("b_array = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.c_array\n");
+            for (int j=0; j<MXRAYFF; j++) {
                 int idx = i*MXRAYFF + j;
-                printf("b_array = %f\n", rayleigh_data.b_array[idx]);
+                fprintf(fp, "c_array[%d][%d] = %10.5f\n", j, i,
+                       rayleigh_data.c_array[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("c_array = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = i*MXRAYFF + j;
-                printf("c_array = %f\n", rayleigh_data.c_array[idx]);
-            }
-            printf("\n");
-            
-            printf("pe_array = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.pmax\n");
+            for (int j=0; j<MXGE; j++) {
                 int idx = i*MXGE + j;
-                printf("pe_array = %f\n", rayleigh_data.pe_array[idx]);
+                fprintf(fp, "pmax0[%d][%d] = %10.5f, pmax1[%d][%d] = %10.5f\n",
+                        j, i, rayleigh_data.pmax0[idx],
+                        j, i, rayleigh_data.pmax1[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("pmax = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = i*MXGE + j;
-                printf("pmax0 = %f, pmax1 = %f\n", rayleigh_data.pmax0[idx],
-                       rayleigh_data.pmax1[idx]);
-            }
-            printf("\n");
-            
-            printf("i_array = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "rayleigh_data.i_array\n");
+            for (int j=0; j<RAYCDFSIZE; j++) {
                 int idx = i*RAYCDFSIZE + j;
-                printf("i_array = %d\n", rayleigh_data.i_array[idx]);
+                fprintf(fp, "i_array[%d][%d] = %d\n", j, i,
+                       rayleigh_data.i_array[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
         }
+        fclose(fp);
     }
     
     return;
@@ -3165,9 +3181,7 @@ void cleanRayleigh() {
     free(rayleigh_data.b_array);
     free(rayleigh_data.c_array);
     free(rayleigh_data.fcum);
-    free(rayleigh_data.ff);
     free(rayleigh_data.i_array);
-    free(rayleigh_data.pe_array);
     free(rayleigh_data.pmax0);
     free(rayleigh_data.pmax1);
     
@@ -3302,60 +3316,70 @@ void initPairData() {
         pair_data.delcm[imed] = pegs_data.delcm[imed];
     }
     
-    /* Print information for debugging purposes */
     if(verbose_flag) {
-        printf("Listing pair data: \n");
+        /* List pair data to output file */
+        FILE *fp;
+        char *file_name = "./output/pair_data.lst";
+        
+        if ((fp = fopen(file_name, "w")) == NULL) {
+            printf("Unable to open file: %s\n", file_name);
+            exit(EXIT_FAILURE);
+        }
+        
+        fprintf(fp, "Listing pair data: \n");
         for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
+            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
             
-            printf("delcm = %f\n", pair_data.delcm[i]);
-            printf("bpar0 = %f\n", pair_data.bpar0[i]);
-            printf("bpar1 = %f\n", pair_data.bpar1[i]);
-            printf("zbrang = %f\n", pair_data.zbrang[i]);
+            fprintf(fp, "pair_data.delcm[%d] = %f\n", i, pair_data.delcm[i]);
+            fprintf(fp, "pair_data.bpar0[%d] = %f\n", i, pair_data.bpar0[i]);
+            fprintf(fp, "pair_data.bpar1[%d] = %f\n", i, pair_data.bpar1[i]);
+            fprintf(fp, "pair_data.zbrang[%d] = %f\n", i, pair_data.zbrang[i]);
             
-            printf("dl1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl1\n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl1 = %f\n", pair_data.dl1[idx]);
+                fprintf(fp, "dl1[%d][%d] = %f\n", j, i, pair_data.dl1[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("dl2 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl2\n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl2 = %f\n", pair_data.dl2[idx]);
+                fprintf(fp, "dl2[%d][%d] = %f\n", j, i, pair_data.dl2[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("dl3 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl3\n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl3 = %f\n", pair_data.dl3[idx]);
+                fprintf(fp, "dl3[%d][%d] = %f\n", j, i, pair_data.dl3[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("dl4 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl4\n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl4 = %f\n", pair_data.dl4[idx]);
+                fprintf(fp, "dl4[%d][%d] = %f\n", j, i, pair_data.dl4[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("dl5 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl5 = \n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl5 = %f\n", pair_data.dl5[idx]);
+                fprintf(fp, "dl5[%d][%d] = %f\n", j, i, pair_data.dl5[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
-            printf("dl6 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
+            fprintf(fp, "pair_data.dl6 = \n");
+            for (int j=0; j<8; j++) {
                 int idx = i*8 + j;
-                printf("dl6 = %f\n", pair_data.dl6[idx]);
+                fprintf(fp, "dl6[%d][%d] = %f\n", j, i, pair_data.dl6[idx]);
             }
-            printf("\n");
+            fprintf(fp, "\n");
             
         }
+        
+        fclose(fp);
     }
     
     return;
@@ -3461,7 +3485,7 @@ void photon() {
             lgle = pwlfInterval(imed, gle,
                                 photon_data.ge1, photon_data.ge0) - 1;
             gmfpr0 = pwlfEval(imed*MXGE + lgle, gle,
-                              photon_data.gmfp0, photon_data.gmfp1);
+                              photon_data.gmfp1, photon_data.gmfp0);
             
         }
         
