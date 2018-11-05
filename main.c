@@ -665,10 +665,8 @@ int main (int argc, char **argv) {
         for (int irl=1; irl<gridsize+1; irl++) {
             etot += score.accum_endep[irl];
         }
-        printf("Fraction of incident energy deposited in the phantom: %5.3f\n",
+        printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
                etot/score.ensrc);
-        printf("Fraction of incident energy that escaped the phantom: %5.3f\n",
-               score.accum_endep[0]/score.ensrc);
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
@@ -2472,7 +2470,7 @@ void initPhotonData() {
             cohe = sigma/(sig_rayleigh[j] + sigma);
             
             if (j > 0) {
-                int idx = i*MXGE + (j-1); // the -1 is not for C indexing!
+                int idx = i*MXGE + (j-1); /* the -1 is not for C indexing! */
                 photon_data.gmfp1[idx] = (gmfp - gmfp_old)*photon_data.ge1[i];
                 photon_data.gmfp0[idx] = gmfp - photon_data.gmfp1[idx]*gle;
                 
@@ -2492,7 +2490,7 @@ void initPhotonData() {
             cohe_old = cohe;
         }
         
-        int idx = i*MXGE + MXGE - 1; // C-indexing
+        int idx = i*MXGE + MXGE - 1;
         photon_data.gmfp1[idx] = photon_data.gmfp1[idx-1];
         photon_data.gmfp0[idx] = gmfp - photon_data.gmfp1[idx]*gle;
         
@@ -2886,13 +2884,13 @@ void initRayleighData(void) {
     readFfData(xval, aff);
     
     /* Allocate memory for Rayleigh data */
-    rayleigh_data.xgrid = malloc(MXRAYFF*geometry.nmed*sizeof(double));
-    rayleigh_data.fcum = malloc(MXRAYFF*geometry.nmed*sizeof(double));
-    rayleigh_data.b_array = malloc(MXRAYFF*geometry.nmed*sizeof(double));
-    rayleigh_data.c_array = malloc(MXRAYFF*geometry.nmed*sizeof(double));
-    rayleigh_data.i_array = malloc(RAYCDFSIZE*geometry.nmed*sizeof(int));
-    rayleigh_data.pmax0 = malloc(MXGE*geometry.nmed*sizeof(double));
-    rayleigh_data.pmax1 = malloc(MXGE*geometry.nmed*sizeof(double));
+    rayleigh_data.xgrid = malloc(geometry.nmed*MXRAYFF*sizeof(double));
+    rayleigh_data.fcum = malloc(geometry.nmed*MXRAYFF*sizeof(double));
+    rayleigh_data.b_array = malloc(geometry.nmed*MXRAYFF*sizeof(double));
+    rayleigh_data.c_array = malloc(geometry.nmed*MXRAYFF*sizeof(double));
+    rayleigh_data.i_array = malloc(geometry.nmed*RAYCDFSIZE*sizeof(int));
+    rayleigh_data.pmax0 = malloc(geometry.nmed*MXGE*sizeof(double));
+    rayleigh_data.pmax1 = malloc(geometry.nmed*MXGE*sizeof(double));
     
     for (int i=0; i<geometry.nmed; i++) {
         /* Calculate form factor using independent atom model */
@@ -2901,7 +2899,7 @@ void initRayleighData(void) {
             rayleigh_data.xgrid[i*MXRAYFF + j] = xval[j];
             
             for (int k=0; k<pegs_data.ne[i]; k++) {
-                int z = (int)pegs_data.elements[i][k].z - 1; // C indexing
+                int z = (int)pegs_data.elements[i][k].z - 1; /* C indexing */
                 ff_val += pegs_data.elements[i][k].pz * pow(aff[z][j],2);
             }
             
@@ -3650,7 +3648,7 @@ void rayleigh(int imed, double eig, double gle, int lgle) {
             }
             
             rnno0 = (rnno0 - rayleigh_data.fcum[ib])*rayleigh_data.c_array[ib];
-            xv = rayleigh_data.xgrid[ib]*exp(log(1.0f + rnno0)*
+            xv = rayleigh_data.xgrid[ib]*exp(log(1.0 + rnno0)*
                                              rayleigh_data.b_array[ib]);
         } while(xv >= xmax);
         
@@ -3659,11 +3657,10 @@ void rayleigh(int imed, double eig, double gle, int lgle) {
         csqthe = pow(costhe, 2.0);
     } while(2.0*rnno1 >= (1.0 + csqthe));
     
-    sinthe = sqrt(1.0f - csqthe);
+    sinthe = sqrt(1.0 - csqthe);
     
     struct Uphi uphi;
     uphi21(&uphi, costhe, sinthe);
-
     
     return;
 }
