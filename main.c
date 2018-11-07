@@ -282,6 +282,7 @@ double *get_data(int flag, int ne, int *ndat,
                  double ge0, double ge1);
 double kn_sigma0(double e);
 void cleanPhoton(void);
+void listPhoton(void);
 
 /******************************************************************************/
 /* Rayleigh data definition */
@@ -305,6 +306,7 @@ struct Rayleigh rayleigh_data;
 void initRayleighData(void);
 void readFfData(double *xval, double **aff);
 void cleanRayleigh(void);
+void listRayleigh(void);
 
 /******************************************************************************/
 /* Pair data definition */
@@ -330,6 +332,7 @@ void initPairData(void);
 double fcoulc(double zi);
 double xsif(double zi, double fc);
 void cleanPair(void);
+void listPair(void);
 
 /******************************************************************************/
 /* Photon transport process */
@@ -454,6 +457,8 @@ struct Spin spin_data;
 
 void initMscatData(void);
 void cleanElectron(void);
+void listElectron(void);
+
 void readRutherfordMscat(int nmed);
 void cleanMscat(void);
 void initSpinData(int nmed);
@@ -592,6 +597,14 @@ int main (int argc, char **argv) {
     
     /* Initialize particle stack */
     initStack();
+    
+    /* In verbose mode, list interaction data to output folder */
+    if (verbose_flag) {
+        listRayleigh();
+        listPair();
+        listPhoton();
+        listElectron();
+    }
     
     /* Shower call */
     
@@ -2540,62 +2553,6 @@ void initPhotonData() {
     free(triplet_xsec_data0);
     free(triplet_xsec_data1);
     
-    if(verbose_flag) {
-        /* List photon data to output file */
-        FILE *fp;
-        char *file_name = "./output/photon_data.lst";
-        
-        if ((fp = fopen(file_name, "w")) == NULL) {
-            printf("Unable to open file: %s\n", file_name);
-            exit(EXIT_FAILURE);
-        }
-        fprintf(fp, "Listing photon data: \n");
-        for (int i=0; i<geometry.nmed; i++) {
-            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
-            fprintf(fp, "photon_data.ge = \n");
-            fprintf(fp, "\t ge0[%d] = %15.5f, ge1[%d] = %15.5f\n", i,
-                    photon_data.ge0[i], i, photon_data.ge1[i]);
-            
-            fprintf(fp, "photon_data.gmfp = \n");
-            for (int j=0; j<MXGE; j++) {
-                int idx = i*MXGE + j;
-                fprintf(fp, "gmfp0[%d][%d] = %15.5f, gmfp1[%d][%d] = %15.5f\n",
-                        j, i, photon_data.gmfp0[idx],
-                        j, i, photon_data.gmfp1[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "photon_data.gbr1 = \n");
-            for (int j=0; j<MXGE; j++) {
-                int idx = i*MXGE + j;
-                fprintf(fp, "gbr10[%d][%d] = %15.5f, gbr11[%d][%d] = %15.5f\n",
-                        j, i, photon_data.gbr10[idx],
-                        j, i, photon_data.gbr11[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "photon_data.gbr2 = \n");
-            for (int j=0; j<MXGE; j++) {
-                int idx = i*MXGE + j;
-                fprintf(fp, "gbr20[%d][%d] = %15.5f, gbr21[%d][%d] = %15.5f\n",
-                        j, i, photon_data.gbr20[idx],
-                        j, i, photon_data.gbr21[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "photon_data.cohe = \n");
-            for (int j=0; j<MXGE; j++) {
-                int idx = i*MXGE + j;
-                fprintf(fp, "cohe0[%d][%d] = %15.5f, cohe1[%d][%d] = %15.5f\n",
-                        j, i, photon_data.cohe0[idx],
-                        j, i, photon_data.cohe1[idx]);
-            }
-            fprintf(fp, "\n");
-            
-        }
-        
-        fclose(fp);
-    }
     return;
 }
 
@@ -2674,6 +2631,66 @@ void cleanPhoton() {
     free(photon_data.gbr20);
     free(photon_data.cohe0);
     free(photon_data.cohe1);
+    
+    return;
+}
+
+void listPhoton() {
+    
+    /* List photon data to output file */
+    FILE *fp;
+    char *file_name = "./output/photon_data.lst";
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    fprintf(fp, "Listing photon data: \n");
+    for (int i=0; i<geometry.nmed; i++) {
+        fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
+        fprintf(fp, "photon_data.ge = \n");
+        fprintf(fp, "\t ge0[%d] = %15.5f, ge1[%d] = %15.5f\n", i,
+                photon_data.ge0[i], i, photon_data.ge1[i]);
+        
+        fprintf(fp, "photon_data.gmfp = \n");
+        for (int j=0; j<MXGE; j++) {
+            int idx = i*MXGE + j;
+            fprintf(fp, "gmfp0[%d][%d] = %15.5f, gmfp1[%d][%d] = %15.5f\n",
+                    j, i, photon_data.gmfp0[idx],
+                    j, i, photon_data.gmfp1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "photon_data.gbr1 = \n");
+        for (int j=0; j<MXGE; j++) {
+            int idx = i*MXGE + j;
+            fprintf(fp, "gbr10[%d][%d] = %15.5f, gbr11[%d][%d] = %15.5f\n",
+                    j, i, photon_data.gbr10[idx],
+                    j, i, photon_data.gbr11[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "photon_data.gbr2 = \n");
+        for (int j=0; j<MXGE; j++) {
+            int idx = i*MXGE + j;
+            fprintf(fp, "gbr20[%d][%d] = %15.5f, gbr21[%d][%d] = %15.5f\n",
+                    j, i, photon_data.gbr20[idx],
+                    j, i, photon_data.gbr21[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "photon_data.cohe = \n");
+        for (int j=0; j<MXGE; j++) {
+            int idx = i*MXGE + j;
+            fprintf(fp, "cohe0[%d][%d] = %15.5f, cohe1[%d][%d] = %15.5f\n",
+                    j, i, photon_data.cohe0[idx],
+                    j, i, photon_data.cohe1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+    }
+    
+    fclose(fp);
     
     return;
 }
@@ -3055,72 +3072,6 @@ void initRayleighData(void) {
     }
     free(aff);
     
-    if(verbose_flag) {
-        /* List rayleigh data to output file */
-        FILE *fp;
-        char *file_name = "./output/rayleigh_data.lst";
-        
-        if ((fp = fopen(file_name, "w")) == NULL) {
-            printf("Unable to open file: %s\n", file_name);
-            exit(EXIT_FAILURE);
-        }
-        fprintf(fp, "Listing rayleigh data: \n");
-        for (int i=0; i<geometry.nmed; i++) {
-            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
-            
-            fprintf(fp, "rayleigh_data.xgrid\n");
-            for (int j=0; j<MXRAYFF; j++) {
-                int idx = i*MXRAYFF + j;
-                fprintf(fp, "xgrid[%d][%d] = %10.5f\n", j, i,
-                        rayleigh_data.xgrid[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "rayleigh_data.fcum\n");
-            for (int j=0; j<MXRAYFF; j++) {
-                int idx = i*MXRAYFF + j;
-                fprintf(fp, "fcum[%d][%d] = %10.5f\n", j, i,
-                        rayleigh_data.fcum[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "rayleigh_data.b_array\n");
-            for (int j=0; j<MXRAYFF; j++) { // print just 5 first values
-                int idx = i*MXRAYFF + j;
-                fprintf(fp, "b_array[%d][%d] = %10.5f\n", j, i,
-                        rayleigh_data.b_array[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "rayleigh_data.c_array\n");
-            for (int j=0; j<MXRAYFF; j++) {
-                int idx = i*MXRAYFF + j;
-                fprintf(fp, "c_array[%d][%d] = %10.5f\n", j, i,
-                       rayleigh_data.c_array[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "rayleigh_data.pmax\n");
-            for (int j=0; j<MXGE; j++) {
-                int idx = i*MXGE + j;
-                fprintf(fp, "pmax0[%d][%d] = %10.5f, pmax1[%d][%d] = %10.5f\n",
-                        j, i, rayleigh_data.pmax0[idx],
-                        j, i, rayleigh_data.pmax1[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "rayleigh_data.i_array\n");
-            for (int j=0; j<RAYCDFSIZE; j++) {
-                int idx = i*RAYCDFSIZE + j;
-                fprintf(fp, "i_array[%d][%d] = %d\n", j, i,
-                       rayleigh_data.i_array[idx]);
-            }
-            fprintf(fp, "\n");
-            
-        }
-        fclose(fp);
-    }
-    
     return;
 }
 
@@ -3184,6 +3135,72 @@ void cleanRayleigh() {
     free(rayleigh_data.pmax1);
     
     return;
+}
+
+void listRayleigh() {
+    /* List rayleigh data to output file */
+    FILE *fp;
+    char *file_name = "./output/rayleigh_data.lst";
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    fprintf(fp, "Listing rayleigh data: \n");
+    for (int i=0; i<geometry.nmed; i++) {
+        fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
+        
+        fprintf(fp, "rayleigh_data.xgrid\n");
+        for (int j=0; j<MXRAYFF; j++) {
+            int idx = i*MXRAYFF + j;
+            fprintf(fp, "xgrid[%d][%d] = %10.5f\n", j, i,
+                    rayleigh_data.xgrid[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "rayleigh_data.fcum\n");
+        for (int j=0; j<MXRAYFF; j++) {
+            int idx = i*MXRAYFF + j;
+            fprintf(fp, "fcum[%d][%d] = %10.5f\n", j, i,
+                    rayleigh_data.fcum[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "rayleigh_data.b_array\n");
+        for (int j=0; j<MXRAYFF; j++) { // print just 5 first values
+            int idx = i*MXRAYFF + j;
+            fprintf(fp, "b_array[%d][%d] = %10.5f\n", j, i,
+                    rayleigh_data.b_array[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "rayleigh_data.c_array\n");
+        for (int j=0; j<MXRAYFF; j++) {
+            int idx = i*MXRAYFF + j;
+            fprintf(fp, "c_array[%d][%d] = %10.5f\n", j, i,
+                    rayleigh_data.c_array[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "rayleigh_data.pmax\n");
+        for (int j=0; j<MXGE; j++) {
+            int idx = i*MXGE + j;
+            fprintf(fp, "pmax0[%d][%d] = %10.5f, pmax1[%d][%d] = %10.5f\n",
+                    j, i, rayleigh_data.pmax0[idx],
+                    j, i, rayleigh_data.pmax1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "rayleigh_data.i_array\n");
+        for (int j=0; j<RAYCDFSIZE; j++) {
+            int idx = i*RAYCDFSIZE + j;
+            fprintf(fp, "i_array[%d][%d] = %d\n", j, i,
+                    rayleigh_data.i_array[idx]);
+        }
+        fprintf(fp, "\n");
+        
+    }
+    fclose(fp);
 }
 
 void initPairData() {
@@ -3314,72 +3331,6 @@ void initPairData() {
         pair_data.delcm[imed] = pegs_data.delcm[imed];
     }
     
-    if(verbose_flag) {
-        /* List pair data to output file */
-        FILE *fp;
-        char *file_name = "./output/pair_data.lst";
-        
-        if ((fp = fopen(file_name, "w")) == NULL) {
-            printf("Unable to open file: %s\n", file_name);
-            exit(EXIT_FAILURE);
-        }
-        
-        fprintf(fp, "Listing pair data: \n");
-        for (int i=0; i<geometry.nmed; i++) {
-            fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
-            
-            fprintf(fp, "pair_data.delcm[%d] = %f\n", i, pair_data.delcm[i]);
-            fprintf(fp, "pair_data.bpar0[%d] = %f\n", i, pair_data.bpar0[i]);
-            fprintf(fp, "pair_data.bpar1[%d] = %f\n", i, pair_data.bpar1[i]);
-            fprintf(fp, "pair_data.zbrang[%d] = %f\n", i, pair_data.zbrang[i]);
-            
-            fprintf(fp, "pair_data.dl1\n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl1[%d][%d] = %f\n", j, i, pair_data.dl1[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "pair_data.dl2\n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl2[%d][%d] = %f\n", j, i, pair_data.dl2[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "pair_data.dl3\n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl3[%d][%d] = %f\n", j, i, pair_data.dl3[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "pair_data.dl4\n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl4[%d][%d] = %f\n", j, i, pair_data.dl4[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "pair_data.dl5 = \n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl5[%d][%d] = %f\n", j, i, pair_data.dl5[idx]);
-            }
-            fprintf(fp, "\n");
-            
-            fprintf(fp, "pair_data.dl6 = \n");
-            for (int j=0; j<8; j++) {
-                int idx = i*8 + j;
-                fprintf(fp, "dl6[%d][%d] = %f\n", j, i, pair_data.dl6[idx]);
-            }
-            fprintf(fp, "\n");
-            
-        }
-        
-        fclose(fp);
-    }
-    
     return;
 }
 
@@ -3437,6 +3388,75 @@ void cleanPair() {
     free(pair_data.bpar1);
     free(pair_data.delcm);
     free(pair_data.zbrang);
+    
+    return;
+}
+
+void listPair() {
+    
+    /* List pair data to output file */
+    FILE *fp;
+    char *file_name = "./output/pair_data.lst";
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing pair data: \n");
+    for (int i=0; i<geometry.nmed; i++) {
+        fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
+        
+        fprintf(fp, "pair_data.delcm[%d] = %f\n", i, pair_data.delcm[i]);
+        fprintf(fp, "pair_data.bpar0[%d] = %f\n", i, pair_data.bpar0[i]);
+        fprintf(fp, "pair_data.bpar1[%d] = %f\n", i, pair_data.bpar1[i]);
+        fprintf(fp, "pair_data.zbrang[%d] = %f\n", i, pair_data.zbrang[i]);
+        
+        fprintf(fp, "pair_data.dl1\n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl1[%d][%d] = %f\n", j, i, pair_data.dl1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "pair_data.dl2\n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl2[%d][%d] = %f\n", j, i, pair_data.dl2[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "pair_data.dl3\n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl3[%d][%d] = %f\n", j, i, pair_data.dl3[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "pair_data.dl4\n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl4[%d][%d] = %f\n", j, i, pair_data.dl4[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "pair_data.dl5 = \n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl5[%d][%d] = %f\n", j, i, pair_data.dl5[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "pair_data.dl6 = \n");
+        for (int j=0; j<8; j++) {
+            int idx = i*8 + j;
+            fprintf(fp, "dl6[%d][%d] = %f\n", j, i, pair_data.dl6[idx]);
+        }
+        fprintf(fp, "\n");
+        
+    }
+    
+    fclose(fp);
     
     return;
 }
@@ -4272,15 +4292,19 @@ void initMscatData() {
                 lelkef = electron_data.eke1[imed]*elkef +
                     electron_data.eke0[imed] - 1;
                 leip1l = lelkef + 1;
-                eip1l  = (leip1l -electron_data.eke0[imed])/electron_data.eke1[imed];
+                /* The value of leip1l must be adjusted by one in the following
+                 sentence, due to the use of C-indexing convention */
+                eip1l  = ((double)(leip1l + 1) -
+                          electron_data.eke0[imed])/electron_data.eke1[imed];
                 eip1   = electron_data.e_array[imed*MXEKE + leip1l];
                 aux    = (eip1 - ekef)/eip1;
-                elktmp = 0.5*(elkef+eip1l+0.25*aux*aux*(1+aux*(1+0.875*aux)));
+                elktmp = 0.5*(elkef + eip1l + 0.25*aux*aux*(1.0 +
+                                                    aux*(1.0 + 0.875*aux)));
                 ektmp  = 0.5*(ekef+eip1);
                 lelktmp = lelkef;
                 ededx = electron_data.ededx1[imed*MXEKE + lelktmp]*elktmp +
                     electron_data.ededx0[imed*MXEKE + lelktmp];
-                aux = electron_data.ededx1[imed*MXEKE + lelktmp];
+                aux = electron_data.ededx1[imed*MXEKE + lelktmp]/ededx;
                 sip1 = (eip1 - ekef)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
                             (pow(((eip1-ekef)/ektmp),2.0)/24.0));
             }
@@ -4295,7 +4319,40 @@ void initMscatData() {
                 (sip1 - si)*electron_data.eke1[imed];
             electron_data.tmxs0[imed*MXEKE + i - 1] = sip1 -
                 electron_data.tmxs1[imed*MXEKE + i - 1]*elke;
+            
+            if (i == 8) {
+                printf("tmxs1 = %e\n", electron_data.tmxs1[imed*MXEKE + i - 1]);
+                printf("tmxs0 = %e\n", electron_data.tmxs0[imed*MXEKE + i - 1]);
+                printf("***\n");
+                printf("si = %e\n", si);
+                printf("sip1 = %e\n", sip1);
+                printf("***\n");
+                printf("range_ep[lelke] = %e\n", electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke]);
+                printf("range_ep[lelkef + 1] = %e\n", electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelkef + 1]);
+                printf("***\n");
+                printf("elke = %e\n", elke);
+                printf("e_array = %e\n", electron_data.e_array[imed*MXEKE]);
+                printf("eip1 = %e\n", eip1);
+                printf("ekef = %e\n", ekef);
+                printf("***\n");
+                printf("ededx = %e\n", ededx);
+                printf("aux = %e\n", aux);
+                printf("ektmp = %e\n", ektmp);
+                printf("***\n");
+                printf("elktmp = %e\n", elktmp);
+                printf("ededx1 = %e\n", electron_data.ededx1[imed*MXEKE + lelktmp]);
+                printf("ededx0 = %e\n", electron_data.ededx0[imed*MXEKE + lelktmp]);
+                printf("***\n");
+                printf("elkef = %e\n", elkef);
+                printf("eip1l = %e\n", eip1l);
+                printf("leip1l = %d\n", leip1l);
+                printf("lelkef = %d\n", lelkef);
+
+                //exit(1);
+            }
+            
             si  = sip1;
+            
         }
         electron_data.tmxs0[imed*MXEKE + neke - 1] =
             electron_data.tmxs0[imed*MXEKE + neke - 2];
@@ -4409,6 +4466,108 @@ void cleanElectron() {
     free(electron_data.tmxs1);
     free(electron_data.xcc);
     free(electron_data.sig_ismonotone);
+    
+    return;
+}
+
+void listElectron(void) {
+    
+    /* List electron data to output file */
+    FILE *fp;
+    char *file_name = "./output/electron_data.lst";
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing electron data: \n");
+    for (int i=0; i<geometry.nmed; i++) {
+        fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
+        fprintf(fp, "electron_data.blcc[%d] = %15.5f\n", i,
+                electron_data.blcc[i]);
+        fprintf(fp, "electron_data.xcc[%d] = %15.5f\n", i,
+                electron_data.xcc[i]);
+        fprintf(fp, "electron_data.eke = \n");
+        fprintf(fp, "\t eke0[%d] = %15.5f, eke1[%d] = %15.5f\n", i,
+                electron_data.eke0[i], i, electron_data.eke1[i]);
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.esig = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "esig0[%d][%d] = %15.5f, esig1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.esig0[idx],
+                    j, i, electron_data.esig1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.psig = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "psig0[%d][%d] = %15.5f, psig1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.psig0[idx],
+                    j, i, electron_data.psig1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.ededx = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "ededx0[%d][%d] = %15.5f, ededx1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.ededx0[idx],
+                    j, i, electron_data.ededx1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pdedx = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pdedx0[%d][%d] = %15.5f, pdedx1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pdedx0[idx],
+                    j, i, electron_data.pdedx1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.ebr1 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "ebr10[%d][%d] = %15.5f, ebr11[%d][%d] = %15.5f\n",
+                    j, i, electron_data.ebr10[idx],
+                    j, i, electron_data.ebr11[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pbr1 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pbr10[%d][%d] = %15.5f, pbr11[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pbr10[idx],
+                    j, i, electron_data.pbr11[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pbr2 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pbr20[%d][%d] = %15.5f, pbr21[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pbr20[idx],
+                    j, i, electron_data.pbr21[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.tmxs = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "tmxs0[%d][%d] = %15.5f, tmxs1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.tmxs0[idx],
+                    j, i, electron_data.tmxs1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+    }
+    
+    fclose(fp);
     
     return;
 }

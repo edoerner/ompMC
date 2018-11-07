@@ -14,7 +14,7 @@ rng seeds = 97 33
                               
 # start geometry
 method of input = phantom
-phantom file = ./phantoms/water_example.egsphant
+phantom file = ./phantoms/air_bone_interface_example.egsphant
 # stop geometry         
                               
 # start MC transport
