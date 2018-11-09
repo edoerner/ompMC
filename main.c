@@ -1,10 +1,23 @@
-//
-//  main.c
-//  ompMC
-//
-//  Created by Edgardo Dörner on 9/22/18.
-//  Copyright © 2018 ED. All rights reserved.
-//
+/******************************************************************************
+ ompMC - An hybrid parallel implementation for Monte Carlo particle transport
+ simulations
+ 
+ Copyright (C) 2018 Edgardo Doerner (edoerner@fis.puc.cl)
+
+
+ This program is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*****************************************************************************/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1942,7 +1955,7 @@ int readPegsFile(int *media_found) {
     int nmedia = 0; // number of media found on pegs4 file
     
     /* The following data is used in electron transport modeling.
-     Alocate Electron struct arrays */
+     Allocate Electron struct arrays */
     electron_data.blcc = malloc(geometry.nmed*sizeof(double));
     electron_data.xcc = malloc(geometry.nmed*sizeof(double));
     electron_data.eke0 = malloc(geometry.nmed*sizeof(double));
@@ -2335,13 +2348,8 @@ int readPegsFile(int *media_found) {
             printf("\t mleke = %d\n", pegs_data.mleke[i]);
             printf("\t mcmfp = %d\n", pegs_data.mcmfp[i]);
             printf("\t mrange = %d\n", pegs_data.mrange[i]);
-            
             printf("\t delcm = %f\n", pegs_data.delcm[i]);
-            printf("\t blcc = %f\n", electron_data.blcc[i]);
-            printf("\t xcc = %f\n", electron_data.xcc[i]);
-            printf("\t eke0 = %f\n", electron_data.eke0[i]);
-            printf("\t eke1 = %f\n", electron_data.eke1[i]);
-            
+        
             for (int j=0; j<pegs_data.ne[i]; j++) {
                 printf("\t For element %s inside %s: \n",
                        pegs_data.elements[i][j].symbol, pegs_data.names[i]);
@@ -4319,38 +4327,6 @@ void initMscatData() {
                 (sip1 - si)*electron_data.eke1[imed];
             electron_data.tmxs0[imed*MXEKE + i - 1] = sip1 -
                 electron_data.tmxs1[imed*MXEKE + i - 1]*elke;
-            
-            if (i == 8) {
-                printf("tmxs1 = %e\n", electron_data.tmxs1[imed*MXEKE + i - 1]);
-                printf("tmxs0 = %e\n", electron_data.tmxs0[imed*MXEKE + i - 1]);
-                printf("***\n");
-                printf("si = %e\n", si);
-                printf("sip1 = %e\n", sip1);
-                printf("***\n");
-                printf("range_ep[lelke] = %e\n", electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke]);
-                printf("range_ep[lelkef + 1] = %e\n", electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelkef + 1]);
-                printf("***\n");
-                printf("elke = %e\n", elke);
-                printf("e_array = %e\n", electron_data.e_array[imed*MXEKE]);
-                printf("eip1 = %e\n", eip1);
-                printf("ekef = %e\n", ekef);
-                printf("***\n");
-                printf("ededx = %e\n", ededx);
-                printf("aux = %e\n", aux);
-                printf("ektmp = %e\n", ektmp);
-                printf("***\n");
-                printf("elktmp = %e\n", elktmp);
-                printf("ededx1 = %e\n", electron_data.ededx1[imed*MXEKE + lelktmp]);
-                printf("ededx0 = %e\n", electron_data.ededx0[imed*MXEKE + lelktmp]);
-                printf("***\n");
-                printf("elkef = %e\n", elkef);
-                printf("eip1l = %e\n", eip1l);
-                printf("leip1l = %d\n", leip1l);
-                printf("lelkef = %d\n", lelkef);
-
-                //exit(1);
-            }
-            
             si  = sip1;
             
         }
@@ -4358,64 +4334,6 @@ void initMscatData() {
             electron_data.tmxs0[imed*MXEKE + neke - 2];
         electron_data.tmxs1[imed*MXEKE + neke - 1] =
             electron_data.tmxs1[imed*MXEKE + neke - 2];
-    }
-    
-    /* Print information for debugging purposes */
-    if(verbose_flag) {
-        
-        printf("Listing electron data: \n");
-        for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
-            
-            printf("esig_e = %f\n", electron_data.esig_e[i]);
-            printf("\n");
-            
-            printf("psig_e = %f\n", electron_data.psig_e[i]);
-            printf("\n");
-            
-            printf("expeke1 = %f\n", electron_data.expeke1[i]);
-            printf("\n");
-            
-            printf("sig_ismonotone = \n");
-            for (int j=0; j<2; j++) {
-                int idx = j*geometry.nmed + i;
-                printf("sig_ismonotone = %d\n", electron_data.sig_ismonotone[idx]);
-            }
-            printf("\n");
-            
-            printf("e_array = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("e_array = %f\n", electron_data.e_array[idx]);
-            }
-            printf("\n");
-            
-            printf("range_ep0 = \n");
-            for (int k=0; k<2; k++) {
-                for (int j=0; j<5; j++) { // print just 5 first values
-                    int idx = k*nmed*MXEKE + i*MXEKE + j;
-                    printf("range_ep = %f\n", electron_data.range_ep[idx]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-            
-            printf("tmxs0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("tmxs0 = %f\n", electron_data.tmxs0[idx]);
-            }
-            printf("\n");
-            
-            printf("tmxs1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("tmxs1 = %f\n", electron_data.tmxs1[idx]);
-            }
-            printf("\n");
-            
-        }
-        
     }
     
     return;
@@ -4491,6 +4409,15 @@ void listElectron(void) {
         fprintf(fp, "electron_data.eke = \n");
         fprintf(fp, "\t eke0[%d] = %15.5f, eke1[%d] = %15.5f\n", i,
                 electron_data.eke0[i], i, electron_data.eke1[i]);
+        fprintf(fp, "electron_data.sig_ismonotone = \n");
+        fprintf(fp, "\t sig_ismonotone[0][%d] = %d, sig_ismonotone[1][%d] = %d\n", i,
+                electron_data.sig_ismonotone[i*2], i, electron_data.sig_ismonotone[i*2+1]);
+        fprintf(fp, "electron_data.esig_e[%d] = %15.5f\n", i,
+                electron_data.esig_e[i]);
+        fprintf(fp, "electron_data.psig_e[%d] = %15.5f\n", i,
+                electron_data.psig_e[i]);
+        fprintf(fp, "electron_data.expeke1[%d] = %15.5f\n", i,
+                electron_data.expeke1[i]);
         fprintf(fp, "\n");
         
         fprintf(fp, "electron_data.esig = \n");
@@ -4562,6 +4489,23 @@ void listElectron(void) {
             fprintf(fp, "tmxs0[%d][%d] = %15.5f, tmxs1[%d][%d] = %15.5f\n",
                     j, i, electron_data.tmxs0[idx],
                     j, i, electron_data.tmxs1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.e_array = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "e_array[%d][%d] = %15.5f\n",
+                    j, i, electron_data.e_array[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.range_ep = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "range_ep[0][%d][%d] = %15.5f, range_ep[1][%d][%d] = %15.5f\n",
+                    j, i, electron_data.range_ep[idx],
+                    j, i, electron_data.range_ep[idx+geometry.nmed*MXEKE]);
         }
         fprintf(fp, "\n");
         
