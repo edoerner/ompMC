@@ -4239,17 +4239,21 @@ void initMscatData() {
             ededx = electron_data.pdedx1[imed*MXEKE + lelke]*elke +
                 electron_data.pdedx0[imed*MXEKE + lelke];
             aux = electron_data.pdedx1[imed*MXEKE + i - 1]/ededx;
+            
             electron_data.range_ep[1*nmed*MXEKE + imed*MXEKE + i] =
                 electron_data.range_ep[1*nmed*MXEKE + imed*MXEKE + i - 1] +
                     (eip1-ei)/ededx*(1.0 +
                         aux*(1.0 + 2.0*aux)*pow((eip1-ei)/eke, 2.0)/24.0);
+            
             ededx = electron_data.ededx1[imed*MXEKE + lelke]*elke +
                 electron_data.ededx0[imed*MXEKE + lelke];
             aux = electron_data.ededx1[imed*MXEKE + i - 1]/ededx;
+            
             electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + i] =
                 electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + i - 1] +
                     (eip1 - ei)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
                         pow(((eip1 - ei)/eke), 2.0)/24.0);
+            
             ei = eip1;
         }
         
