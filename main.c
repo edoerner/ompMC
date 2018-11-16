@@ -141,7 +141,7 @@ void initScore(void);
 void cleanScore(void);
 void ausgab(double edep);
 void accumEndep(void);
-void outputResults(char *output_file, int iout);
+void outputResults(char *output_file, int iout, int nhist, int nbatch);
 
 /******************************************************************************/
 /* Stack definition */
@@ -422,10 +422,6 @@ struct Electron {
     double *blcc;
     double *expeke1;
     
-    int *iunrst;
-    int *epstfl;
-    int *iaprim;
-    
 };
 struct Electron electron_data;
 
@@ -474,8 +470,12 @@ void listElectron(void);
 
 void readRutherfordMscat(int nmed);
 void cleanMscat(void);
+void listMscat(void);
+
 void initSpinData(int nmed);
 void cleanSpin(void);
+void listSpin(void);
+
 void setSpline(double *x, double *f, double *a, double *b, double *c,
                 double *d,int n);
 double spline(double s, double *x, double *a, double *b, double *c,
@@ -494,14 +494,6 @@ double pwlfEval(int idx, double lvar, double *coef1, double *coef0);
 /* Geometry functions */
 void howfar(int *idisc, int *irnew, double *ustep);
 double hownear(void);
-
-/******************************************************************************/
-/* ompMC simulation control settings */
-struct oMC {
-    int nhist;
-    int nbatch;
-};
-struct oMC omc;
 
 /******************************************************************************/
 /* ompMC main function */
@@ -617,6 +609,8 @@ int main (int argc, char **argv) {
         listPair();
         listPhoton();
         listElectron();
+        listMscat();
+        listSpin();
     }
     
     /* Shower call */
@@ -627,32 +621,32 @@ int main (int argc, char **argv) {
         printf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    omc.nhist = atoi(buffer);
+   int nhist = atoi(buffer);
     
     if (getInputValue(buffer, "nbatch") != 1) {
         printf("Can not find 'nbatch' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    omc.nbatch = atoi(buffer);
+    int nbatch = atoi(buffer);
     
-    if (omc.nhist/omc.nbatch == 0) {
-        omc.nhist = omc.nbatch;
+    if (nhist/nbatch == 0) {
+        nhist = nbatch;
     }
     
-    int nperbatch = omc.nhist/omc.nbatch;
-    omc.nhist = nperbatch*omc.nbatch;
+    int nperbatch = nhist/nbatch;
+    nhist = nperbatch*nbatch;
     
     int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
     
-    printf("Total number of particle histories: %d\n", omc.nhist);
-    printf("Number of statistical batches: %d\n", omc.nbatch);
+    printf("Total number of particle histories: %d\n", nhist);
+    printf("Number of statistical batches: %d\n", nbatch);
     printf("Histories per batch: %d\n", nperbatch);
     
     /* Execution time up to this point */
     printf("Execution time up to this point : %8.5f seconds\n",
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
-    for (int ibatch=0; ibatch<omc.nbatch; ibatch++) {
+    for (int ibatch=0; ibatch<nbatch; ibatch++) {
         if (ibatch == 0) {
             /* Print header for information during simulation */
             printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
@@ -696,7 +690,7 @@ int main (int argc, char **argv) {
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
-    outputResults(output_file, iout);
+    outputResults(output_file, iout, nhist, nbatch);
     
     /* Cleaning */
     cleanPhantom();
@@ -1604,7 +1598,7 @@ void accumEndep() {
     return;
 }
 
-void outputResults(char *output_file, int iout) {
+void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     
     int irl;
     int imax = geometry.isize;
@@ -1617,10 +1611,10 @@ void outputResults(char *output_file, int iout) {
     double mass;
     
     if (beam_area == 0.0) {
-        inc_fluence = (double)omc.nhist;
+        inc_fluence = (double)nhist;
     }
     else {
-        inc_fluence = (double)omc.nhist/beam_area;
+        inc_fluence = (double)nhist/beam_area;
     }
     
     for (int iz=0; iz<geometry.ksize; iz++) {
@@ -1632,13 +1626,13 @@ void outputResults(char *output_file, int iout) {
                 
                 /* First calculate mean deposited energy across batches and its
                  uncertainty */
-                endep /= (double)omc.nbatch;
-                endep2 /= (double)omc.nbatch;
+                endep /= (double)nbatch;
+                endep2 /= (double)nbatch;
                 
                 /* Batch approach uncertainty calculation */
                 if (endep != 0.0) {
                     unc_endep = endep2 - pow(endep, 2.0);
-                    unc_endep /= (double)(omc.nbatch - 1);
+                    unc_endep /= (double)(nbatch - 1);
                     
                     /* Relative uncertainty */
                     unc_endep = sqrt(unc_endep)/endep;
@@ -4377,7 +4371,6 @@ void cleanElectron() {
     free(electron_data.ededx1);
     free(electron_data.eke0);
     free(electron_data.eke1);
-    free(electron_data.epstfl);
     free(electron_data.esig0);
     free(electron_data.esig1);
     free(electron_data.esig_e);
@@ -4386,8 +4379,6 @@ void cleanElectron() {
     free(electron_data.etap_ms0);
     free(electron_data.etap_ms1);
     free(electron_data.expeke1);
-    free(electron_data.iaprim);
-    free(electron_data.iunrst);
     free(electron_data.pbr10);
     free(electron_data.pbr11);
     free(electron_data.pbr20);
@@ -4535,6 +4526,69 @@ void listElectron(void) {
         }
         fprintf(fp, "\n");
         
+        fprintf(fp, "electron_data.etae_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"etae_ms0[%d][%d] = %15.5f, etae_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.etae_ms0[idx],
+                    j, i, electron_data.etae_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.etap_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"etap_ms0[%d][%d] = %15.5f, etap_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.etae_ms0[idx],
+                    j, i, electron_data.etae_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q1ce_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q1ce_ms0[%d][%d] = %15.5f, q1ce_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q1ce_ms0[idx],
+                    j, i, electron_data.q1ce_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q1cp_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q1cp_ms0[%d][%d] = %15.5f, q1cp_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q1cp_ms0[idx],
+                    j, i, electron_data.q1cp_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q2ce_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q2ce_ms0[%d][%d] = %15.5f, q2ce_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q2ce_ms0[idx],
+                    j, i, electron_data.q2ce_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q2cp_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q2cp_ms0[%d][%d] = %15.5f, q2cp_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q2cp_ms0[idx],
+                    j, i, electron_data.q2cp_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.blcce = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"blcce0[%d][%d] = %15.5f, blcce1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.blcce0[idx],
+                    j, i, electron_data.blcce1[idx]);
+        }
+        fprintf(fp, "\n");
+        
     }
     
     fclose(fp);
@@ -4606,38 +4660,6 @@ void readRutherfordMscat(int nmed) {
     double dqms    = QMAX_MS/MXQ_MS;
     mscat_data.dqmsi = 1.0/dqms;
     
-    /* Print information for debugging purposes */
-    if(verbose_flag) {
-        printf("Listing multi-scattering data: \n");
-        printf("dllambi = %f\n", mscat_data.dllambi);
-        printf("dqmsi = %f\n", mscat_data.dqmsi);
-        
-        printf("ums_array = \n");
-        for (int j=0; j<5; j++) { // print just 5 first values
-            printf("ums_array = %f\n", mscat_data.ums_array[j]);
-        }
-        printf("\n");
-        
-        printf("fms_array = \n");
-        for (int j=0; j<5; j++) { // print just 5 first values
-            printf("fms_array = %f\n", mscat_data.fms_array[j]);
-        }
-        printf("\n");
-        
-        printf("wms_array = \n");
-        for (int j=0; j<5; j++) { // print just 5 first values
-            printf("wms_array = %f\n", mscat_data.wms_array[j]);
-        }
-        printf("\n");
-        
-        printf("ims_array = \n");
-        for (int j=0; j<5; j++) { // print just 5 first values
-            printf("ims_array = %d\n", mscat_data.ims_array[j]);
-        }
-        printf("\n");
-        
-    }
-    
     fclose(fp);
     
     return;
@@ -4649,6 +4671,76 @@ void cleanMscat() {
     free(mscat_data.ims_array);
     free(mscat_data.ums_array);
     free(mscat_data.wms_array);
+    
+    return;
+}
+
+void listMscat() {
+    
+    /* List mscat data to output file */
+    FILE *fp;
+    char *file_name = "./output/mscat_data.lst";
+    int idx;
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing multi-scattering data: \n");
+    fprintf(fp, "dllambi = %f\n", mscat_data.dllambi);
+    fprintf(fp, "dqmsi = %f\n", mscat_data.dqmsi);
+    
+    fprintf(fp, "\n");
+    fprintf(fp, "ums_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "ums_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.ums_array[idx]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    printf("fms_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "fms_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.fms_array[idx]);
+            }
+        }
+    }
+    printf("\n");
+    
+    printf("wms_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "wms_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.wms_array[idx]);
+            }
+        }
+    }
+    printf("\n");
+    
+    printf("ims_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "ims_array[%d][%d][%d] = %d\n",
+                        i, j, k, mscat_data.ims_array[idx]);
+            }
+        }
+    }
+    printf("\n");
+    
+    fclose(fp);
     
     return;
 }
@@ -4752,8 +4844,10 @@ void initSpinData(int nmed) {
     double *c_array = (double*) malloc(2*(MXE_SPIN1+1)*sizeof(double));
     double *g_array = (double*) malloc(2*(MXE_SPIN1+1)*sizeof(double));
     
-    spin_data.spin_rej = calloc(nmed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*
-                           (MXU_SPIN + 1), sizeof(double));
+    spin_data.spin_rej = malloc(nmed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*
+                           (MXU_SPIN + 1)*sizeof(double));
+    memset(spin_data.spin_rej, 0.0, nmed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*
+           (MXU_SPIN + 1)*sizeof(double));
     
     double *fmax_array = (double*) malloc((MXQ_SPIN + 1)*sizeof(double));
     
@@ -5179,130 +5273,6 @@ void initSpinData(int nmed) {
     
     fclose(fp);
     
-    /* Print information for debugging purposes */
-    if(verbose_flag) {
-        printf("Listing spin data: \n");
-        printf("b2spin_min = %f\n", spin_data.b2spin_min);
-        printf("dbeta2i = %f\n", spin_data.dbeta2i);
-        printf("espml = %f\n", spin_data.espml);
-        printf("dleneri = %f\n", spin_data.dleneri);
-        printf("dqq1i = %f\n", spin_data.dqq1i);
-        printf("\n");
-        
-        for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
-            printf("spin_rej = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = i*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*(MXU_SPIN + 1) + j;
-                printf("spin_rej = %f\n", spin_data.spin_rej[idx]);
-            }
-            printf("\n");
-        }
-        
-        printf("Listing electron data: \n");
-        for (int i=0; i<geometry.nmed; i++) {
-            printf("For medium %s: \n", geometry.med_names[i]);
-            printf("etae_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("etae_ms0 = %f\n", electron_data.etae_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("etae_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("etae_ms1 = %f\n", electron_data.etae_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("etap_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("etap_ms0 = %f\n", electron_data.etap_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("etap_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("etap_ms1 = %f\n", electron_data.etap_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("q1ce_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q1ce_ms0 = %f\n", electron_data.q1ce_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("q1ce_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q1ce_ms1 = %f\n", electron_data.q1ce_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("q1cp_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q1cp_ms0 = %f\n", electron_data.q1cp_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("q1cp_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q1cp_ms1 = %f\n", electron_data.q1cp_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("q2ce_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q2ce_ms0 = %f\n", electron_data.q2ce_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("q2ce_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q2ce_ms1 = %f\n", electron_data.q2ce_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("q2cp_ms0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q2cp_ms0 = %f\n", electron_data.q2cp_ms0[idx]);
-            }
-            printf("\n");
-            
-            printf("q2cp_ms1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("q2cp_ms1 = %f\n", electron_data.q2cp_ms1[idx]);
-            }
-            printf("\n");
-            
-            printf("blcce0 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("blcce0 = %f\n", electron_data.blcce0[idx]);
-            }
-            printf("\n");
-            
-            printf("blcce1 = \n");
-            for (int j=0; j<5; j++) { // print just 5 first values
-                int idx = MXEKE*i + j;
-                printf("blcce1 = %f\n", electron_data.blcce1[idx]);
-            }
-            printf("\n");
-            
-        }
-    }
-    
     /* Cleaning */
     free(earray);
     free(eta_array);
@@ -5321,6 +5291,53 @@ void initSpinData(int nmed) {
 void cleanSpin() {
     
     free(spin_data.spin_rej);
+    
+    return;
+}
+
+void listSpin() {
+    
+    /* List mscat data to output file */
+    FILE *fp;
+    char *file_name = "./output/spin_data.lst";
+    int idx;
+    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing spin data: \n");
+    fprintf(fp, "b2spin_min = %f\n", spin_data.b2spin_min);
+    fprintf(fp, "dbeta2i = %f\n", spin_data.dbeta2i);
+    fprintf(fp, "espml = %f\n", spin_data.espml);
+    fprintf(fp, "dleneri = %f\n", spin_data.dleneri);
+    fprintf(fp, "dqq1i = %f\n", spin_data.dqq1i);
+    fprintf(fp, "\n");
+    
+    for (int imed=0; imed<geometry.nmed; imed++) {
+        fprintf(fp, "For medium %s: \n", geometry.med_names[imed]);
+        fprintf(fp, "spin_rej = \n");
+        
+        for (int i=0; i<=MXE_SPIN1; i++) {
+            for (int j=0; j<= MXQ_SPIN; j++) {
+                for (int k=0; k<=MXU_SPIN; k++) {
+                    idx = imed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                    + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                    + j*(MXU_SPIN + 1) + k;
+                    fprintf(fp, "spin_rej[%d][0][%d][%d][%d] = %15.5f, "
+                            "spin_rej[%d][1][%d][%d][%d] = %15.5f\n",
+                            imed, i, j, k, spin_data.spin_rej[idx],
+                            imed, j, i, k, spin_data.spin_rej[idx +
+                                (MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*(MXU_SPIN + 1)]);
+                    
+                }
+            }
+        }
+        printf("\n");
+    }
+    
+    fclose(fp);
     
     return;
 }
