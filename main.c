@@ -1977,6 +1977,24 @@ int readPegsFile(int *media_found) {
     electron_data.tmxs0 = malloc(geometry.nmed*MXEKE*sizeof(double));
     electron_data.tmxs1 = malloc(geometry.nmed*MXEKE*sizeof(double));
     
+    /* Zero the following arrays, as they are surely not totally used. */
+    memset(electron_data.esig0, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.esig1, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.psig0, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.psig1, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.ededx0, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.ededx1, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pdedx0, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pdedx1, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.ebr10, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.ebr11, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pbr10, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pbr11, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pbr20, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.pbr21, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.tmxs0, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    memset(electron_data.tmxs1, 0.0, geometry.nmed*MXEKE*sizeof(double));
+    
     do {
         /* Read a line of pegs file */
         char buffer[80];
@@ -4149,6 +4167,10 @@ void initMscatData() {
     electron_data.e_array = malloc(nmed*MXEKE*sizeof(double));
     electron_data.range_ep = malloc(2*nmed*MXEKE*sizeof(double));
     electron_data.expeke1 = malloc(nmed*sizeof(double));
+    
+    /* Zero the following arrays, as they surely are not totally used. */
+    memset(electron_data.e_array, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.range_ep, 0.0, 2*nmed*MXEKE*sizeof(double));
 
     for (int imed=0; imed<nmed; imed++) {
         sigee = 1.0E-15;
