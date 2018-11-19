@@ -4539,8 +4539,8 @@ void listElectron(void) {
         for (int j=0; j<MXEKE; j++) {
             int idx = i*MXEKE + j;
             fprintf(fp,"etap_ms0[%d][%d] = %15.5f, etap_ms1[%d][%d] = %15.5f\n",
-                    j, i, electron_data.etae_ms0[idx],
-                    j, i, electron_data.etae_ms1[idx]);
+                    j, i, electron_data.etap_ms0[idx],
+                    j, i, electron_data.etap_ms1[idx]);
         }
         fprintf(fp, "\n");
         
@@ -4876,6 +4876,22 @@ void initSpinData(int nmed) {
     electron_data.blcce0 = malloc(nmed*MXEKE*sizeof(double));
     electron_data.blcce1 = malloc(nmed*MXEKE*sizeof(double));
     
+    /* Zero the following arrays, as they are surely not totally used. */
+    memset(electron_data.etae_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etae_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etap_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etap_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1ce_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1ce_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1cp_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1cp_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2ce_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2ce_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2cp_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2cp_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.blcce0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.blcce1, 0.0, nmed*MXEKE*sizeof(double));
+    
     for (int imed = 0; imed<nmed; imed++) {
         double sum_Z2 = 0.0, sum_A = 0.0, sum_pz = 0.0, sum_Z = 0.0;
         
@@ -5152,7 +5168,7 @@ void initSpinData(int nmed) {
         electron_data.q1cp_ms1[MXEKE*imed + neke - 1] =
             electron_data.q1cp_ms1[MXEKE*imed + neke - 2];
         electron_data.q1cp_ms0[MXEKE*imed + neke - 1] =
-            electron_data.q1cp_ms1[MXEKE*imed + neke - 2];
+            electron_data.q1cp_ms0[MXEKE*imed + neke - 2];
         
         /* Prepare interpolation table for the second MS moment correction */
         /* First electrons */
