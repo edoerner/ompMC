@@ -5350,7 +5350,7 @@ void listSpin() {
                 }
             }
         }
-        printf("\n");
+        fprintf(fp, "\n");
     }
     
     fclose(fp);
