@@ -4714,9 +4714,9 @@ void listMscat() {
             }
         }
     }
-    printf("\n");
+    fprintf(fp, "\n");
     
-    printf("wms_array = \n");
+    fprintf(fp, "wms_array = \n");
     for (int i=0; i<=MXL_MS; i++) {
         for (int j=0; j<=MXQ_MS; j++) {
             for (int k=0; k<=MXU_MS; k++) {
@@ -4726,9 +4726,9 @@ void listMscat() {
             }
         }
     }
-    printf("\n");
+    fprintf(fp, "\n");
     
-    printf("ims_array = \n");
+    fprintf(fp, "ims_array = \n");
     for (int i=0; i<=MXL_MS; i++) {
         for (int j=0; j<=MXQ_MS; j++) {
             for (int k=0; k<=MXU_MS; k++) {
@@ -4738,7 +4738,7 @@ void listMscat() {
             }
         }
     }
-    printf("\n");
+    fprintf(fp, "\n");
     
     fclose(fp);
     
