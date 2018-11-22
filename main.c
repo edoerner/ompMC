@@ -53,8 +53,8 @@ int lineBlack(char *line);
 
 /* Remove white spaces from string str_untrimmed and saves the results in
  str_trimmed. Useful for string input values, such as file names */
-void removeSpaces(char* restrict str_trimmed,
-                  const char* restrict str_untrimmed);
+void removeSpaces(char* str_trimmed,
+                  const char* str_untrimmed);
 
 struct inputItems {
     char key[60];
@@ -787,8 +787,8 @@ int lineBlack(char *line) {
     return is_blank;
 }
 
-void removeSpaces(char* restrict str_trimmed,
-                  const char* restrict str_untrimmed) {
+void removeSpaces(char* str_trimmed,
+                  const char* str_untrimmed) {
     
     while (*str_untrimmed != '\0') {
         if(!isspace(*str_untrimmed)) {
@@ -1368,7 +1368,8 @@ void initRandom() {
         printf("twom24 = %e\n", rng.twom24);
         printf("rng_seed = %d\n", rng.rng_seed);
         
-        printf("urndm = \n");
+        printf("\n");
+        printf("urndm = \n:");
         for (int i=0; i<5; i++) { /* printf just 5 first values */
             printf("urndm[%d] = %d\n", i, rng.urndm[i]);
         }
@@ -4704,7 +4705,7 @@ void listMscat() {
     }
     fprintf(fp, "\n");
     
-    printf("fms_array = \n");
+    fprintf(fp, "fms_array = \n");
     for (int i=0; i<=MXL_MS; i++) {
         for (int j=0; j<=MXQ_MS; j++) {
             for (int k=0; k<=MXU_MS; k++) {
