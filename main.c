@@ -145,7 +145,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch);
 
 /******************************************************************************/
 /* Stack definition */
-#define MXSTACK 40  // maximum number of particles on stack
+#define MXSTACK 100  // maximum number of particles on stack
 
 struct Stack {
     int np;         // stack pointer
@@ -367,6 +367,7 @@ void photo(void);
 /* Electron data definition */
 #define XIMAX 0.5
 #define ESTEPE 0.25
+#define EPSEMFP 1.0E-5F // smallest electron mean free path
 
 struct Electron {
     double *esig0;
@@ -4431,7 +4432,7 @@ void listElectron(void) {
                 electron_data.eke0[i], i, electron_data.eke1[i]);
         fprintf(fp, "electron_data.sig_ismonotone = \n");
         fprintf(fp, "\t sig_ismonotone[0][%d] = %d, sig_ismonotone[1][%d] = %d\n", i,
-                electron_data.sig_ismonotone[i*2], i, electron_data.sig_ismonotone[i*2+1]);
+                electron_data.sig_ismonotone[0*geometry.nmed + i], i, electron_data.sig_ismonotone[1*geometry.nmed + i]);
         fprintf(fp, "electron_data.esig_e[%d] = %15.5f\n", i,
                 electron_data.esig_e[i]);
         fprintf(fp, "electron_data.psig_e[%d] = %15.5f\n", i,
@@ -5452,8 +5453,10 @@ void electron() {
     
     struct Uphi uphi;
     double eie = stack.e[np];       // energy of incident gamma
-    int iq = stack.iq[irl];         // charge of current particle.
+    int iq = stack.iq[np];         // charge of current particle.
     int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
+    
+    double rnno;
     
     /* First check of electron cut-off energy */
     if(eie <= region.ecut[irl]) {
@@ -5485,7 +5488,85 @@ void electron() {
     ausgab(edep);
     stack.np -= 1;
     return;
+    
+    double elke;    // logarithm of kinetic energy
+    double lelke;   // index into the energy grid of tabulated funtions
+    double sigratio = 0.0;
+    double rfict = 0.0; // rejection function for fictitius cross section.
+    
+    
+    
+    do {    // start of tstep loop
+        
+        /* Go through this loop each time we recompute distance to an
+         interaction */
+        int do_range = 1;       // in order to try to save evaluation of range
+        int compute_tstep = 1;  // mean free path resampled. Calculate
+                                // distance to the interaction in ustep loop
+        
+        double eke = eie - RM;  // kinetic energy of the particle
+        double demfp;           // differential electron mean free path
+        
+        double sigf;            // cross section before density scaling but
+                                // after a step
+        double sig0;            // cross section before density scaling but
+                                // before a step
+        double dedx0;           // stopping power before density scaling
+        
+        double ustep;            // projected transport distance in the
+                                // direction of motion at the start of the step
+        
+        do {    // start of ustep loop
+            if(imed != -1) {
+                /* Not vacuum. The electron mean free path must be sampled to
+                 determine how far is the next interaction */
+                
+                /* Select electron mean free path */
+                rnno = setRandom();
+                if(rnno == 0.0) {
+                    rnno = 1.0E-30;
+                }
+                demfp = fmax(-log(rnno), EPSEMFP);
+                
+                /* Prepare to aproximate cross section. First obtain energy
+                 interval of current particle */
+                elke = log(eke);
+                
+                /* lelke adjusted to C standard */
+                lelke = pwlfInterval(imed, elke, electron_data.eke1,
+                                     electron_data.eke0) - 1;
+            
+                /* Evaluate sig0 for the fictitious method. This version uses
+                 sub-threshold energy loss as a measure of path-length. Cross
+                 section is actual cross section divided by restricted
+                 stopping power */
+                
+                /*if(electron_data.sig_ismonotone[qel]) {
+                    if(iq < 0) {
+                        sig0 = pwlf_eval(lelke, elke, elec_data->esig1, elec_data->esig0);
+                        dedx0 = pwlf_eval(lelke, elke, elec_data->ededx1, elec_data->ededx0);
+                        sig0 /= dedx0;
+                    }
+                    else {
+                        sig0 = pwlf_eval(lelke, elke, elec_data->psig1, elec_data->psig0);
+                        dedx0 = pwlf_eval(lelke, elke, elec_data->pdedx1, elec_data->pdedx0);
+                        sig0 /= dedx0;
+                    }
+                }
+                else {
+                    // Use the global maximum values determined in the host.
+                    if(iq < 0) {
+                        sig0 = elec_data->esig_e;
+                    }
+                    else {
+                        sig0 = elec_data->psig_e;
+                    }
+                }*/
+                
+            } // end of non-vacuum test
 
+        } while (demfp >= EPSEMFP); // end of ustep loop
+    } while (rfict >= sigratio);    // end of tstep loop
     
     return;
 }
@@ -5498,9 +5579,9 @@ void rannih() {
     
     /* Polar angle selection */
     rnno = setRandom();
-    double theta = M_PI*rnno;
-    double sinthe = sin(theta);
-    double costhe = cos(theta);
+    double costhe = 2.0*rnno - 1;
+    double sinthe = sqrt(fmax(0.0, (1.0 - costhe)*(1.0 + costhe)));
+    
     
     /* Azimuthal angle selection */
     rnno = setRandom();
