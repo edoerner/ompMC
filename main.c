@@ -485,6 +485,8 @@ double spline(double s, double *x, double *a, double *b, double *c,
 /* Electron interaction processes */
 void electron(void);
 
+void rannih(void);
+
 /******************************************************************************/
 /* Auxiliary functions during simulation */
 int pwlfInterval(int idx, double lvar, double *coef1, double *coef0);
@@ -5442,10 +5444,88 @@ double spline(double s, double *x, double *a, double *b, double *c,
 
 void electron() {
     
-    /* for the moment just discard electron and deposit its energy on spot */
-    double edep = stack.e[stack.np] - RM;
+    int np = stack.np;              // stack pointer
+    int irl = stack.ir[np];         // region index
+    int imed = region.med[irl];     // medium index of current region
+    double rhof = region.rhof[irl]; // mass density ratio
+    double edep = 0.0;              // deposited energy by particle
+    
+    struct Uphi uphi;
+    double eie = stack.e[np];       // energy of incident gamma
+    int iq = stack.iq[irl];         // charge of current particle.
+    int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
+    
+    /* First check of electron cut-off energy */
+    if(eie <= region.ecut[irl]) {
+        
+        edep = eie - RM;    // get energy deposition for user
+        
+        /* Call ausgab and drop energy on spot */
+        ausgab(edep);
+        
+        /* Positron annihilation section */
+        if(iq > 0) {
+            /* The particle is a positron. Produce annihilation gammas
+             if edep < eie */
+            if(edep < eie) {
+                rannih();
+                
+                // Now discard the positron and take normal return to
+                // follow the annihilation gammas.
+                return;
+            }
+        }
+        
+        stack.np -= 1;
+        return;
+    }
+    
+    /* For the moment just discard electron and deposit its energy on spot */
+    edep = eie - RM;
     ausgab(edep);
     stack.np -= 1;
+    return;
+
+    
+    return;
+}
+
+void rannih() {
+    
+    /* Pick random direction for first gamma */
+    double rnno;
+    int np = stack.np;
+    
+    /* Polar angle selection */
+    rnno = setRandom();
+    double theta = M_PI*rnno;
+    double sinthe = sin(theta);
+    double costhe = cos(theta);
+    
+    /* Azimuthal angle selection */
+    rnno = setRandom();
+    double phi = 2.0*M_PI*rnno;
+    double sinphi = sin(phi);
+    double cosphi = cos(phi);
+    
+    /* First photon */
+    stack.e[np] = RM;
+    stack.iq[np] = 0;
+    stack.u[np] = sinthe*cosphi;
+    stack.v[np] = sinthe*sinphi;
+    stack.w[np] = costhe;
+    
+    /* Second photon */
+    np +=1;
+    stack.e[np] = RM;
+    stack.iq[np] = 0;
+    transferProperties(np, np-1);
+    stack.u[np] = -1.0*stack.u[np-1];
+    stack.v[np] = -1.0*stack.v[np-1];
+    stack.w[np] = -1.0*stack.w[np-1];
+    
+    /* Update stack */
+    stack.np = np;
     
     return;
 }
