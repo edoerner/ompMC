@@ -27,8 +27,9 @@
 /******************************************************************************/
 /* Parsing program options with getopt long
  http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
-
+#ifndef MATLAB_COMPILE_MEX
 #include <getopt.h>
+#endif
 
 /* Flag set by ‘--verbose’. */
 static int verbose_flag;
@@ -57,8 +58,8 @@ void removeSpaces(char* str_trimmed,
                   const char* str_untrimmed);
 
 struct inputItems {
-    char key[60];
-    char value[60];
+    char key[255];    
+    char value[255];
 };
 
 struct inputItems input_items[80];  // i.e. support 80 key,value pairs
@@ -497,6 +498,7 @@ double hownear(void);
 
 /******************************************************************************/
 /* ompMC main function */
+#ifndef MATLAB_COMPILE_MEX
 int main (int argc, char **argv) {
     
     /* Execution time measurement */
@@ -712,7 +714,7 @@ int main (int argc, char **argv) {
     
     exit (EXIT_SUCCESS);
 }
-
+#endif
 void parseInputFile(char *input_file) {
     
     char buf[120];      // support lines up to 120 characters
@@ -922,9 +924,10 @@ void cleanPhantom() {
     free(geometry.xbounds);
     free(geometry.ybounds);
     free(geometry.zbounds);
+    #ifndef MATLAB_COMPILE_MEX
     free(geometry.med_indices);
     free(geometry.med_densities);
-    
+    #endif
     return;
 }
 
