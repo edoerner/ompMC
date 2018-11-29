@@ -164,6 +164,8 @@ void initScore(void);
 void cleanScore(void);
 void ausgab(double edep);
 void accumEndep(void);
+
+void accumulateResults(int iout, int nhist, int nbatch);
 void outputResults(char *output_file, int iout, int nhist, int nbatch);
 
 /******************************************************************************/
@@ -714,6 +716,8 @@ int main (int argc, char **argv) {
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
+    
+    
     outputResults(output_file, iout, nhist, nbatch);
     
     /* Cleaning */
@@ -1624,8 +1628,8 @@ void accumEndep() {
     return;
 }
 
-void outputResults(char *output_file, int iout, int nhist, int nbatch) {
-    
+void accumulateResults(int iout, int nhist, int nbatch)
+{
     int irl;
     int imax = geometry.isize;
     int ijmax = geometry.isize*geometry.jsize;
@@ -1693,6 +1697,16 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
             }
         }
     }
+}
+
+void outputResults(char *output_file, int iout, int nhist, int nbatch) {
+    
+    //Accumulate the results
+    accumulateResults(iout, nhist,nbatch);
+    
+    int irl;
+    int imax = geometry.isize;
+    int ijmax = geometry.isize*geometry.jsize;
     
     /* Output to file */
     char extension[15];

@@ -12,6 +12,9 @@
 
 #define exit(EXIT_FAILURE) mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalid","Abort.");
 
+
+#define printf mexPrintf
+
 #define MATLAB_COMPILE_MEX
 #include "main.c"
 
@@ -23,8 +26,6 @@ void initPhantomFromMatlab();
 // 3: pln
 //Outputs:
 // Sparse Matrix
-
-#define printf mexPrintf
 
 void mexFunction(
         int nlhs,       mxArray *plhs[], //Output of the function
@@ -374,6 +375,11 @@ void mexFunction(
         mexPrintf("OmpMC output Option: Verbose flag is set!");
     
     
+    //Read the relative dose threshold
+    tmpFieldPointer = mxGetField(mcOpt,0,"relDoseThreshold");
+    double relDoseThreshold = mxGetScalar(tmpFieldPointer);
+    
+    mexPrintf("Using a relative dose cut-off of %f\n",relDoseThreshold);
     
     // Start MC setup
     
@@ -447,8 +453,8 @@ void mexFunction(
     }
     
     /* Print some output and execution time up to this point */
-    printf("Simulation finished\n");
-    printf("Execution time up to this point : %8.5f seconds\n",
+    mexPrintf("Simulation finished\n");
+    mexPrintf("Execution time up to this point : %8.5f seconds\n",
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
     /* Analysis and output of results */
@@ -463,7 +469,62 @@ void mexFunction(
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
-    outputResults("output_dose", iout, nhist, nbatch);
+    //outputResults("output_dose", iout, nhist, nbatch);
+    accumulateResults(iout, nhist, nbatch);
+    
+    //Get maximum value to apply threshold
+    double doseMax = 0.0;
+    for (int irl=1; irl < gridsize+1; irl++)
+    {
+        if (score.accum_endep[irl] > doseMax)
+            doseMax = score.accum_endep[irl];
+    }
+    double thresh = doseMax * relDoseThreshold;
+    
+    mexPrintf("Found maximum dose value of %.3e Gy, applying threshold of %.3e Gy.\n",doseMax,thresh);
+    
+    //Count values above threshold
+    mwSize nnz = 0; //Number of nonzeros in the dose cube
+    
+    for (int irl=1; irl < gridsize+1; irl++)
+    {        
+        if (score.accum_endep[irl] > thresh)
+            nnz++;
+    }
+    mexPrintf("Found %d significant values, equals %f percent of whole cube.\n",nnz,100.0* (double) nnz / (double) gridsize);
+    
+    //double percent_sparse = 0.2;
+    //Create Output Matrix
+    //mwSize nzmax = (mwSize) ceil((double)nCubeElements * percent_sparse);
+    
+    plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nnz,mxREAL);
+    double *sr  = mxGetPr(plhs[0]);
+    mwIndex *irs = mxGetIr(plhs[0]);
+    mwIndex *jcs = mxGetJc(plhs[0]);
+    
+    //double *sr  = mxCalloc(nnz,sizeof(double));
+    //mwIndex *irs = mxCalloc(nnz,sizeof(mwIndex));
+    //mwIndex *jcs = mxCalloc(nnz,sizeof(
+    
+    mwIndex linIx = 0;
+    for (int irl=1; irl < gridsize+1; irl++)
+    {        
+        if (score.accum_endep[irl] > thresh) {            
+            sr[linIx] = score.accum_endep[irl];
+            irs[linIx] = irl-1;
+            //mexPrintf("Element %d: Index %d and value %.3e",linIx,irs[linIx],sr[linIx]);
+            linIx++;
+        }
+    }
+    jcs[0] = 0;
+    jcs[1] = linIx;
+    for (mwIndex iBeamlet = 2; iBeamlet <= nBeamlets; iBeamlet++)
+        jcs[iBeamlet] = linIx;
+    
+    //mxSetNzmax(plhs[0],nnz);
+    //mxSetPr(plhs[0],sr);
+    //mxSetIr(plhs[0],irs);
+    //mxSetJc(plhs[0],jcs);
     
     /* Cleaning */
     /*cleanPhantom();*/
@@ -483,17 +544,7 @@ void mexFunction(
     printf("Total execution time : %8.5f seconds\n",
            (double)(tend - tbegin)/CLOCKS_PER_SEC);
         
-    /**********************************/
     
-    double percent_sparse = 0.2;
-    //Create Output Matrix
-    mwSize nzmax = (mwSize) ceil((double)nCubeElements * percent_sparse);
-    
-    plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nzmax,0);
-    //sr  = mxGetPr(plhs[0]);
-    //si  = mxGetPi(plhs[0]);
-    //irs = mxGetIr(plhs[0]);
-    //jcs = mxGetJc(plhs[0]);
     
 }
 
