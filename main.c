@@ -119,6 +119,28 @@ struct Source {
                                 // field on phantom surface
     int iyinl, iyinu;        // lower and upper y-bounds indices of the
                                 // field on phantom surface
+    
+    /* Beamlets shape information */
+    int nbeams;                 // number of beams
+    
+    double *xsource;           // coordinates of the source of each beam
+    double *ysource;          
+    double *zsource;          
+    
+    int *nbixels;               // number of bixels per beam
+    
+    double *xcorner;           // coordinates of the bixel corner
+    double *ycorner;           
+    double *zcorner;  
+    
+    double *xside1;           // coordinates of the first side of bixel
+    double *yside1;           
+    double *zside1;
+    
+    double *xside2;           // coordinates of the second side of bixel
+    double *yside2;           
+    double *zside2;
+        
 };
 struct Source source;
 
@@ -1680,9 +1702,20 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
         strcpy(extension, ".3denergy");
     }
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
     /* Make space for the new string */
-    char* file_name = malloc(strlen(output_file) + strlen(extension) + 1);
-    strcpy(file_name, output_file);
+    char* file_name = malloc(strlen(output_folder) + strlen(output_file) + strlen(extension) + 1);
+    strcpy(file_name, output_folder);
+    strcat(file_name, output_file); /* add the file name */
     strcat(file_name, extension); /* add the extension */
     
     FILE *fp;
@@ -2390,8 +2423,8 @@ void initPhotonData() {
     char photon_xsection[128];
     char buffer[128];
     
-    if (getInputValue(buffer, "photon xsection") != 1) {
-        printf("Can not find 'photon xsection' key on input file.\n");
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     removeSpaces(photon_xsection, buffer);
@@ -2404,7 +2437,7 @@ void initPhotonData() {
     
     char xsection_file[256];
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_photo.data");
+    strcat(xsection_file, "xcom_photo.data");
     readXsecData(xsection_file, photo_ndat, photo_xsec_data0, photo_xsec_data1);
     
     int *rayleigh_ndat = (int*) malloc(MXELEMENT*sizeof(int));
@@ -2412,7 +2445,7 @@ void initPhotonData() {
     double **rayleigh_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_rayleigh.data");
+    strcat(xsection_file, "xcom_rayleigh.data");
     readXsecData(xsection_file, rayleigh_ndat, rayleigh_xsec_data0,
                  rayleigh_xsec_data1);
     
@@ -2421,7 +2454,7 @@ void initPhotonData() {
     double **pair_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_pair.data");
+    strcat(xsection_file, "xcom_pair.data");
     readXsecData(xsection_file, pair_ndat, pair_xsec_data0, pair_xsec_data1);
     
     /* We do not consider bound compton scattering, therefore there is no
@@ -2432,7 +2465,7 @@ void initPhotonData() {
     double **triplet_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_triplet.data");
+    strcat(xsection_file, "xcom_triplet.data");
     readXsecData(xsection_file, triplet_ndat, triplet_xsec_data0,
                  triplet_xsec_data1);
     
@@ -2661,14 +2694,27 @@ void cleanPhoton() {
 
 void listPhoton() {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "photon_data.lst");
+    
     /* List photon data to output file */
     FILE *fp;
-    char *file_name = "./output/photon_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
     }
+    
     fprintf(fp, "Listing photon data: \n");
     for (int i=0; i<geometry.nmed; i++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
@@ -3101,14 +3147,26 @@ void initRayleighData(void) {
 
 void readFfData(double *xval, double **aff) {
     
-    FILE *fp;
-    char file_name[25] = "./pegs4/pgs4form.dat";
+    /* Get file path from input data */
+    char pgs4form_file[128];
+    char buffer[128];
     
-    /* Open file containing form factors */
-    if ((fp = fopen(file_name, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file_name);
+    if (getInputValue(buffer, "pgs4form file") != 1) {
+        printf("Can not find 'pgs4form file' key on input file.\n");
         exit(EXIT_FAILURE);
     }
+    removeSpaces(pgs4form_file, buffer);
+    
+    /* Open pgs4form file */
+    FILE *fp;
+    
+    if ((fp = fopen(pgs4form_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", pgs4form_file);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Path to pgs4form file : %s\n", pgs4form_file);
+
     
     int ok = fp > 0; // "boolean" variable, ok = 0, false; ok = 1, true
     
@@ -3142,7 +3200,8 @@ void readFfData(double *xval, double **aff) {
     }
     
     if (ok == 0) {
-        printf("Could not read atomic form factors file %s", file_name);
+        printf("Could not read atomic form factors file %s", 
+                pgs4form_file);
         exit(EXIT_FAILURE);
     }
     
@@ -3162,14 +3221,28 @@ void cleanRayleigh() {
 }
 
 void listRayleigh() {
+       
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "rayleigh_data.lst");
+    
     /* List rayleigh data to output file */
     FILE *fp;
-    char *file_name = "./output/rayleigh_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
     }
+    
     fprintf(fp, "Listing rayleigh data: \n");
     for (int i=0; i<geometry.nmed; i++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
@@ -3418,10 +3491,22 @@ void cleanPair() {
 
 void listPair() {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "pair_data.lst");
+    
     /* List pair data to output file */
     FILE *fp;
-    char *file_name = "./output/pair_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -4411,10 +4496,22 @@ void cleanElectron() {
 
 void listElectron(void) {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "electron_data.lst");
+    
     /* List electron data to output file */
     FILE *fp;
-    char *file_name = "./output/electron_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -4602,16 +4699,28 @@ void listElectron(void) {
 
 void readRutherfordMscat(int nmed) {
     
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char msnew_file[256];
+    strcpy(msnew_file, data_folder);
+    strcat(msnew_file, "msnew.data");
+    
     /* Open multi-scattering file */
     FILE *fp;
-    char file[25] = "./data/msnew.data";
-    
-    if ((fp = fopen(file, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file);
+    if ((fp = fopen(msnew_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", msnew_file);
         exit(EXIT_FAILURE);
     }
     
-    printf("Path to multi-scattering data file : %s\n", file);
+    printf("Path to multi-scattering data file : %s\n", msnew_file);
     
     /* Allocate memory for MS data */
     mscat_data.ums_array =
@@ -4623,7 +4732,7 @@ void readRutherfordMscat(int nmed) {
     mscat_data.ims_array =
         malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
     
-    printf("Reading multi-scattering data from file : %s\n", file);
+    printf("Reading multi-scattering data from file : %s\n", msnew_file);
     
     for (int i=0; i<=MXL_MS; i++) {
         for (int j=0; j <= MXQ_MS; j++) {
@@ -4681,11 +4790,22 @@ void cleanMscat() {
 
 void listMscat() {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "mscat_data.lst");
+    
     /* List mscat data to output file */
     FILE *fp;
-    char *file_name = "./output/mscat_data.lst";
-    int idx;
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -4694,6 +4814,8 @@ void listMscat() {
     fprintf(fp, "Listing multi-scattering data: \n");
     fprintf(fp, "dllambi = %f\n", mscat_data.dllambi);
     fprintf(fp, "dqmsi = %f\n", mscat_data.dqmsi);
+    
+    int idx;
     
     fprintf(fp, "\n");
     fprintf(fp, "ums_array = \n");
@@ -4751,16 +4873,28 @@ void listMscat() {
 
 void initSpinData(int nmed) {
     
-    /* Open multi-scattering file */
-    FILE *fp;
-    char file[25] = "./data/spinms.data";
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[128];
     
-    if ((fp = fopen(file, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file);
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char spinms_file[256];
+    strcpy(spinms_file, data_folder);
+    strcat(spinms_file, "spinms.data");
+    
+    /* Open spinms file */
+    FILE *fp;
+    if ((fp = fopen(spinms_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", spinms_file);
         exit(EXIT_FAILURE);
     }
     
-    printf("Path to spin data file : %s\n", file);
+    printf("Path to spin data file : %s\n", spinms_file);
     
     /* Get length of file to create data buffers to reading */
     fseek(fp, 0, SEEK_END);
@@ -5317,11 +5451,22 @@ void cleanSpin() {
 
 void listSpin() {
     
-    /* List mscat data to output file */
-    FILE *fp;
-    char *file_name = "./output/spin_data.lst";
-    int idx;
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[128];
     
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "spin_data.lst");
+    
+    /* List spin data to output file */
+    FILE *fp;
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -5334,6 +5479,8 @@ void listSpin() {
     fprintf(fp, "dleneri = %f\n", spin_data.dleneri);
     fprintf(fp, "dqq1i = %f\n", spin_data.dqq1i);
     fprintf(fp, "\n");
+    
+    int idx;
     
     for (int imed=0; imed<geometry.nmed; imed++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[imed]);

@@ -31,11 +31,16 @@ void mexFunction(
         int nrhs, const mxArray *prhs[]  //Input of the function
         )
 {
+    
+    /* Execution time measurement */
+    clock_t tbegin, tend;
+    tbegin = clock();
+    
     char * tmp;
     
     
     /* Check for proper number of input and output arguments */
-    if (nrhs != 4) {
+    if (nrhs != 5) {
         mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalidNumInputs",
                 "Two or three input arguments required.");
     }
@@ -49,7 +54,8 @@ void mexFunction(
     const mxArray * cubeRho = prhs[0];
     const mxArray * cubeMatIx = prhs[1];
     const mxArray * mcGeo = prhs[2];
-    const mxArray * mcOpt = prhs[3];
+    const mxArray * mcSrc = prhs[3];
+    const mxArray * mcOpt = prhs[4];
     
     /* Check data type of input argument 1 / ct cube */
     if (!(mxIsDouble(cubeRho))){
@@ -62,10 +68,15 @@ void mexFunction(
                 "Input argument 1 must be a three-dimensional cube\n");
     }
     
-    /* Check data type of input argument 2 / stf */
+    /* Check data type of input argument 2 / Geo */
     if(!mxIsStruct(mcGeo))
         mexErrMsgIdAndTxt( "MATLAB:phonebook:inputNotStruct",
                 "Input 3 must be a mcGeo Structure.");
+    
+    /* Check data type of input argument 3 / Src */
+    if(!mxIsStruct(mcSrc))
+        mexErrMsgIdAndTxt( "MATLAB:phonebook:inputNotStruct",
+                "Input 4 must be a mcSrc Structure.");
     
     
     //Parse Geometric Information
@@ -87,19 +98,64 @@ void mexFunction(
     /* allocate memory  for storing classIDflags */
     //classIDflags = mxCalloc(nGeoStructFields, sizeof(mxClassID));
     
-    tmpFieldPointer = mxGetField(mcGeo,0,"nFields");
-    
-    
+    tmpFieldPointer = mxGetField(mcSrc,0,"nBeams");
     nFields = mxGetScalar(tmpFieldPointer);
+    source.nbeams = nFields;
     
-    tmpFieldPointer = mxGetField(mcGeo,0,"nBixels");
+    tmpFieldPointer = mxGetField(mcSrc,0,"xSource");
+    source.xsource = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"ySource");
+    source.ysource = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"zSource");
+    source.zsource = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"nBixels");
     const double* nBeamletsPerField = mxGetPr(tmpFieldPointer);
+    
+    source.nbixels = malloc(source.nbeams*sizeof(int));
+    for(int i=0; i<source.nbeams; i++) {
+        source.nbixels[i] = (int) nBeamletsPerField[i];
+    }
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"xCorner");
+    source.xcorner = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"yCorner");
+    source.ycorner = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"zCorner");
+    source.zcorner = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"xSide1");
+    source.xside1 = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"ySide1");
+    source.yside1 = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"zSide1");
+    source.zside1 = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"xSide2");
+    source.xside2 = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"ySide2");
+    source.yside2 = mxGetPr(tmpFieldPointer);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"zSide2");
+    source.zside2 = mxGetPr(tmpFieldPointer);
     
     unsigned int nBeamlets = 0;
     
     for(int iField=0; iField<nFields; iField++) {
-        mexPrintf("%s%d\t%s%d\n","Field ",iField, "Number of Beamlets: ", (unsigned int) nBeamletsPerField[iField]);
+        mexPrintf("%s%d\t%s%d\n","Field ",iField, "Number of Beamlets: ", source.nbixels[iField]);
         nBeamlets += (unsigned int) nBeamletsPerField[iField];
+        mexPrintf("%s%f %f %f\n", "Source position: ", source.xsource[iField], source.ysource[iField], source.zsource[iField]);
+        mexPrintf("%s%f %f %f\n", "Corner position: ", source.xcorner[iField*source.nbixels[iField]], source.ycorner[iField*source.nbixels[iField]], source.zcorner[iField*source.nbixels[iField]]);
+        mexPrintf("%s%f %f %f\n", "Side1 position: ", source.xside1[iField*source.nbixels[iField]+1], source.yside1[iField*source.nbixels[iField]+1], source.zside1[iField*source.nbixels[iField]+1]);
+        mexPrintf("%s%f %f %f\n", "Side2 position: ", source.xside2[iField*source.nbixels[iField]+1], source.yside2[iField*source.nbixels[iField]+1], source.zside2[iField*source.nbixels[iField]+1]);
+
     }
     mexPrintf("%s%d\n", "Total Number of Beamlets:", nBeamlets);
     
@@ -249,7 +305,7 @@ void mexFunction(
     }
     
     nInput++;
-    sprintf(input_items[nInput].key,"global_ecut");
+    sprintf(input_items[nInput].key,"global ecut");
     tmpFieldPointer = mxGetField(mcOpt,0,"global_ecut");    
     status = mexCallMATLAB(1, &tmp2, 1,  &tmpFieldPointer, "num2str");    
     if (status != 0)
@@ -261,7 +317,7 @@ void mexFunction(
     }
 
     nInput++;
-    sprintf(input_items[nInput].key,"global_pcut");
+    sprintf(input_items[nInput].key,"global pcut");
     tmpFieldPointer = mxGetField(mcOpt,0,"global_pcut");    
     status = mexCallMATLAB(1, &tmp2, 1,  &tmpFieldPointer, "num2str");    
     if (status != 0)
@@ -291,8 +347,20 @@ void mexFunction(
     strcpy(input_items[nInput].value,tmp);
     
     nInput++;
-    sprintf(input_items[nInput].key,"photon xsection");
-    tmpFieldPointer = mxGetField(mcOpt,0,"photonXsection");    
+    sprintf(input_items[nInput].key,"pgs4form file");
+    tmpFieldPointer = mxGetField(mcOpt,0,"pgs4formFile");    
+    tmp = mxArrayToString(tmpFieldPointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"data folder");
+    tmpFieldPointer = mxGetField(mcOpt,0,"dataFolder");    
+    tmp = mxArrayToString(tmpFieldPointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"output folder");
+    tmpFieldPointer = mxGetField(mcOpt,0,"outputFolder");    
     tmp = mxArrayToString(tmpFieldPointer);
     strcpy(input_items[nInput].value,tmp);
     
@@ -331,8 +399,6 @@ void mexFunction(
     initStack();
     
     /* In verbose mode, list interaction data to output folder */
-    
-    
     if (verbose_flag) {
         listRayleigh();
         listPair();
@@ -342,13 +408,82 @@ void mexFunction(
         listSpin();
     }
     
+    /* Shower call */
+    int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
     
+    printf("Total number of particle histories: %d\n", nhist);
+    printf("Number of statistical batches: %d\n", nbatch);
+    printf("Histories per batch: %d\n", nperbatch);
     
+    /* Execution time up to this point */
+    printf("Execution time up to this point : %8.5f seconds\n",
+           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
+    for (int ibatch=0; ibatch<nbatch; ibatch++) {
+        if (ibatch == 0) {
+            /* Print header for information during simulation */
+            printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
+                   "RNG state");
+            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+        }
+        else {
+            /* Print state of current batch */
+            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+            
+        }
+        
+        for (int ihist=0; ihist<nperbatch; ihist++) {
+            /* Initialize particle history */
+            initHistory();
+            
+            /* Start electromagnetic shower simulation */
+            shower();
+        }
+        
+        /* Accumulate results of current batch for statistical analysis */
+        accumEndep();
+    }
     
+    /* Print some output and execution time up to this point */
+    printf("Simulation finished\n");
+    printf("Execution time up to this point : %8.5f seconds\n",
+           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
+    /* Analysis and output of results */
+    if (verbose_flag) {
+        /* Sum energy deposition in the phantom */
+        double etot = 0.0;
+        for (int irl=1; irl<gridsize+1; irl++) {
+            etot += score.accum_endep[irl];
+        }
+        printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
+               etot/score.ensrc);
+    }
     
+    int iout = 1;   /* i.e. deposit mean dose per particle fluence */
+    outputResults("output_dose", iout, nhist, nbatch);
     
+    /* Cleaning */
+    /*cleanPhantom();*/
+    cleanPhoton();
+    cleanRayleigh();
+    cleanPair();
+    cleanElectron();
+    cleanMscat();
+    cleanSpin();
+    cleanRegions();
+    cleanRandom();
+    cleanScore();
+    cleanStack();
+    
+    /* Get total execution time */
+    tend = clock();
+    printf("Total execution time : %8.5f seconds\n",
+           (double)(tend - tbegin)/CLOCKS_PER_SEC);
+        
+    /**********************************/
     
     double percent_sparse = 0.2;
     //Create Output Matrix
@@ -360,10 +495,5 @@ void mexFunction(
     //irs = mxGetIr(plhs[0]);
     //jcs = mxGetJc(plhs[0]);
     
-    
-    // Run it
-    /* Execution time measurement */
-    clock_t tbegin, tend;
-    tbegin = clock();
 }
 
