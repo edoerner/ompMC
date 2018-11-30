@@ -425,32 +425,93 @@ void mexFunction(
     printf("Execution time up to this point : %8.5f seconds\n",
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
-    for (int ibatch=0; ibatch<nbatch; ibatch++) {
-        if (ibatch == 0) {
-            /* Print header for information during simulation */
-            printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
-                   "RNG state");
-            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
-                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
-        }
-        else {
-            /* Print state of current batch */
-            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
-                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
-            
+    double percent_sparse = 0.2;
+    //Create Output Matrix
+    mwSize nzmax = (mwSize) ceil((double)nCubeElements*percent_sparse);
+    plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nzmax,mxREAL);
+    double *sr  = mxGetPr(plhs[0]);
+    mwIndex *irs = mxGetIr(plhs[0]);
+    mwIndex *jcs = mxGetJc(plhs[0]);
+    mwIndex linIx = 0;
+    jcs[0] = 0;
+    
+    for(int ibeamlet=0; ibeamlet<nBeamlets; ibeamlet++) {
+        for (int ibatch=0; ibatch<nbatch; ibatch++) {
+//             if (ibatch == 0) {
+//                 /* Print header for information during simulation */
+//                 printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
+//                        "RNG state");
+//                 printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+//                        (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+//             }
+//             else {
+//                 /* Print state of current batch */
+//                 printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
+//                        (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+// 
+//             }
+
+            for (int ihist=0; ihist<nperbatch; ihist++) {
+                /* Initialize particle history */
+                initHistory();
+
+                /* Start electromagnetic shower simulation */
+                shower();
+            }
+
+            /* Accumulate results of current batch for statistical analysis */
+            accumEndep();
         }
         
-        for (int ihist=0; ihist<nperbatch; ihist++) {
-            /* Initialize particle history */
-            initHistory();
-            
-            /* Start electromagnetic shower simulation */
-            shower();
+        int iout = 1;   /* i.e. deposit mean dose per particle fluence */
+        //outputResults("output_dose", iout, nhist, nbatch);
+        accumulateResults(iout, nhist, nbatch);
+
+        //Get maximum value to apply threshold
+        double doseMax = 0.0;
+        for (int irl=1; irl < gridsize+1; irl++)
+        {
+            if (score.accum_endep[irl] > doseMax)
+                doseMax = score.accum_endep[irl];
+        }
+        double thresh = doseMax * relDoseThreshold;
+
+//         mexPrintf("Found maximum dose value of %.3e Gy, applying threshold of %.3e Gy.\n",doseMax,thresh);
+
+        //Count values above threshold
+        mwSize nnz = 0; //Number of nonzeros in the dose cube
+
+        for (int irl=1; irl < gridsize+1; irl++)
+        {        
+            if (score.accum_endep[irl] > thresh)
+                nnz++;
+        }
+//         mexPrintf("Found %d significant values, equals %f percent of whole cube.\n",nnz,100.0* (double) nnz / (double) gridsize);
+
+        //double *sr  = mxCalloc(nnz,sizeof(double));
+        //mwIndex *irs = mxCalloc(nnz,sizeof(mwIndex));
+        //mwIndex *jcs = mxCalloc(nnz,sizeof(
+
+        for (int irl=1; irl < gridsize+1; irl++)
+        {        
+            if (score.accum_endep[irl] > thresh) {            
+                sr[linIx] = score.accum_endep[irl];
+                irs[linIx] = irl-1;
+                //mexPrintf("Element %d: Index %d and value %.3e",linIx,irs[linIx],sr[linIx]);
+                linIx++;
+            }
         }
         
-        /* Accumulate results of current batch for statistical analysis */
-        accumEndep();
+        jcs[ibeamlet+1] = linIx;
+//         for (mwIndex iBeamlet = 2; iBeamlet <= nBeamlets; iBeamlet++)
+//             jcs[iBeamlet] = linIx;
+        
+        /* Reset accum_endep for following beamlet */
+        memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
+        
     }
+    
+    
     
     /* Print some output and execution time up to this point */
     mexPrintf("Simulation finished\n");
@@ -458,68 +519,15 @@ void mexFunction(
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
     /* Analysis and output of results */
-    if (verbose_flag) {
-        /* Sum energy deposition in the phantom */
-        double etot = 0.0;
-        for (int irl=1; irl<gridsize+1; irl++) {
-            etot += score.accum_endep[irl];
-        }
-        printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
-               etot/score.ensrc);
-    }
-    
-    int iout = 1;   /* i.e. deposit mean dose per particle fluence */
-    //outputResults("output_dose", iout, nhist, nbatch);
-    accumulateResults(iout, nhist, nbatch);
-    
-    //Get maximum value to apply threshold
-    double doseMax = 0.0;
-    for (int irl=1; irl < gridsize+1; irl++)
-    {
-        if (score.accum_endep[irl] > doseMax)
-            doseMax = score.accum_endep[irl];
-    }
-    double thresh = doseMax * relDoseThreshold;
-    
-    mexPrintf("Found maximum dose value of %.3e Gy, applying threshold of %.3e Gy.\n",doseMax,thresh);
-    
-    //Count values above threshold
-    mwSize nnz = 0; //Number of nonzeros in the dose cube
-    
-    for (int irl=1; irl < gridsize+1; irl++)
-    {        
-        if (score.accum_endep[irl] > thresh)
-            nnz++;
-    }
-    mexPrintf("Found %d significant values, equals %f percent of whole cube.\n",nnz,100.0* (double) nnz / (double) gridsize);
-    
-    //double percent_sparse = 0.2;
-    //Create Output Matrix
-    //mwSize nzmax = (mwSize) ceil((double)nCubeElements * percent_sparse);
-    
-    plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nnz,mxREAL);
-    double *sr  = mxGetPr(plhs[0]);
-    mwIndex *irs = mxGetIr(plhs[0]);
-    mwIndex *jcs = mxGetJc(plhs[0]);
-    
-    //double *sr  = mxCalloc(nnz,sizeof(double));
-    //mwIndex *irs = mxCalloc(nnz,sizeof(mwIndex));
-    //mwIndex *jcs = mxCalloc(nnz,sizeof(
-    
-    mwIndex linIx = 0;
-    for (int irl=1; irl < gridsize+1; irl++)
-    {        
-        if (score.accum_endep[irl] > thresh) {            
-            sr[linIx] = score.accum_endep[irl];
-            irs[linIx] = irl-1;
-            //mexPrintf("Element %d: Index %d and value %.3e",linIx,irs[linIx],sr[linIx]);
-            linIx++;
-        }
-    }
-    jcs[0] = 0;
-    jcs[1] = linIx;
-    for (mwIndex iBeamlet = 2; iBeamlet <= nBeamlets; iBeamlet++)
-        jcs[iBeamlet] = linIx;
+//     if (verbose_flag) {
+//         /* Sum energy deposition in the phantom */
+//         double etot = 0.0;
+//         for (int irl=1; irl<gridsize+1; irl++) {
+//             etot += score.accum_endep[irl];
+//         }
+//         printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
+//                etot/score.ensrc);
+//     }
     
     //mxSetNzmax(plhs[0],nnz);
     //mxSetPr(plhs[0],sr);
