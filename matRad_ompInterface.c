@@ -425,9 +425,10 @@ void mexFunction(
     printf("Execution time up to this point : %8.5f seconds\n",
            (double)(clock() - tbegin)/CLOCKS_PER_SEC);
     
-    double percent_sparse = 0.2;
+    double percentage_steps = 0.01; //Steps in which the sparse matrix is allocated
+    double percent_sparse = percentage_steps; //Initial percentage to allocate memory for
     //Create Output Matrix
-    mwSize nzmax = (mwSize) ceil((double)nCubeElements*percent_sparse);
+    mwSize nzmax = (mwSize) ceil((double)nCubeElements*(double)nBeamlets * percent_sparse);
     plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nzmax,mxREAL);
     double *sr  = mxGetPr(plhs[0]);
     mwIndex *irs = mxGetIr(plhs[0]);
@@ -488,6 +489,32 @@ void mexFunction(
         }
 //         mexPrintf("Found %d significant values, equals %f percent of whole cube.\n",nnz,100.0* (double) nnz / (double) gridsize);
 
+        //Check if we need to reallocate for sparse matrix
+        if ((linIx + nnz) > nzmax)
+        {
+            int oldnzmax = nzmax;
+            percent_sparse += percentage_steps;
+            
+            nzmax = (mwSize) ceil((double)nCubeElements*(double)nBeamlets*percent_sparse);
+            
+            
+            /* Make sure nzmax increases atleast by 1. */
+            if (oldnzmax == nzmax)
+                nzmax++;
+            
+            if (verbose_flag)
+                mexPrintf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n",oldnzmax,nzmax);
+            
+            //Set new nzmax and reallocate more memory
+            mxSetNzmax(plhs[0], nzmax);
+            mxSetPr(plhs[0], mxRealloc(sr, nzmax*sizeof(double)));
+            mxSetIr(plhs[0], mxRealloc(irs, nzmax*sizeof(int)));
+            
+            //Use the new pointers
+            sr  = mxGetPr(plhs[0]);
+            irs = mxGetIr(plhs[0]);
+        }
+        
         //double *sr  = mxCalloc(nnz,sizeof(double));
         //mwIndex *irs = mxCalloc(nnz,sizeof(mwIndex));
         //mwIndex *jcs = mxCalloc(nnz,sizeof(
@@ -511,7 +538,15 @@ void mexFunction(
         
     }
     
+    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n",linIx,(double) linIx / ((double)nCubeElements*(double)nBeamlets));
     
+    //Truncate the matrix to the exact size by reallocation
+    mxSetNzmax(plhs[0], linIx);
+    mxSetPr(plhs[0], mxRealloc(sr, linIx*sizeof(double)));
+    mxSetIr(plhs[0], mxRealloc(irs, linIx*sizeof(int)));
+    
+    sr  = mxGetPr(plhs[0]);
+    irs = mxGetIr(plhs[0]);
     
     /* Print some output and execution time up to this point */
     mexPrintf("Simulation finished\n");
