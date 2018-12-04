@@ -716,9 +716,7 @@ int main (int argc, char **argv) {
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
-    
-    
-    outputResults(output_file, iout, nhist, nbatch);
+    outputResults(output_file, iout, nperbatch, nbatch);
     
     /* Cleaning */
     cleanPhantom();
@@ -1684,7 +1682,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
                         (geometry.zbounds[iz+1] - geometry.zbounds[iz]);
                     
                     /* Transform deposited energy to Gy */
-                    mass *= pegs_data.rho[region.med[irl]];
+                    mass *= geometry.med_densities[irl-1];
                     endep *= 1.602E-10/(mass*inc_fluence);
                     
                 } else {    /* Output mean deposited energy */
