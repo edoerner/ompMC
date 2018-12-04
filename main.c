@@ -1655,7 +1655,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
                         (geometry.zbounds[iz+1] - geometry.zbounds[iz]);
                     
                     /* Transform deposited energy to Gy */
-                    mass *= region.rhof[irl];
+                    mass *= geometry.med_densities[irl-1];
                     endep *= 1.602E-10/(mass*inc_fluence);
                     
                 } else {    /* Output mean deposited energy */
