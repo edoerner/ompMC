@@ -108,27 +108,14 @@ struct Source {
     double *cdfinv1;            // energy value of bin
     double *cdfinv2;            // prob. that particle has energy xi
     
-    /* Source shape information */
-    double ssd;                 // distance of point source to phantom surface
-    double xinl, xinu;          // lower and upper x-bounds of the field on
-                                // phantom surface
-    double yinl, yinu;          // lower and upper y-bounds of the field on
-                                // phantom surface
-    double xsize, ysize;        // x- and y-width of collimated field
-    int ixinl, ixinu;        // lower and upper x-bounds indices of the
-                                // field on phantom surface
-    int iyinl, iyinu;        // lower and upper y-bounds indices of the
-                                // field on phantom surface
-    
     /* Beamlets shape information */
-    int nbeams;                 // number of beams
+    int nbeamlets;               // number of beamlets per beam
+    int *ibeam;                  // index of beam per beamlet
     
     double *xsource;           // coordinates of the source of each beam
     double *ysource;          
     double *zsource;          
-    
-    int *nbixels;               // number of bixels per beam
-    
+        
     double *xcorner;           // coordinates of the bixel corner
     double *ycorner;           
     double *zcorner;  
@@ -194,7 +181,7 @@ struct Stack {
 struct Stack stack;
 
 void initStack(void);
-void initHistory(void);
+void initHistory(int ibeamlet);
 void cleanStack(void);
 
 /******************************************************************************/
@@ -689,7 +676,7 @@ int main (int argc, char **argv) {
         
         for (int ihist=0; ihist<nperbatch; ihist++) {
             /* Initialize particle history */
-            initHistory();
+            initHistory(ihist);
             
             /* Start electromagnetic shower simulation */
             shower();
@@ -1107,115 +1094,8 @@ void initSource() {
         
     }
     
-    /* Initialize geometrical data of the source */
+    /* TODO: Initialize geometrical data of the source */
     
-    /* Read collimator rectangle */
-    if (getInputValue(buffer, "collimator bounds") != 1) {
-        printf("Can not find 'collimator bounds' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    sscanf(buffer, "%lf %lf %lf %lf", &source.xinl,
-           &source.xinu, &source.yinl, &source.yinu);
-    
-    /* Calculate x-direction input zones */
-    if (source.xinl < geometry.xbounds[0]) {
-        source.xinl = geometry.xbounds[0];
-    }
-    if (source.xinu <= source.xinl) {
-        source.xinu = source.xinl;  /* default a pencil beam */
-    }
-    
-    /* Check radiation field is not too big against the phantom */
-    if (source.xinu > geometry.xbounds[geometry.isize]) {
-        source.xinu = geometry.xbounds[geometry.isize];
-    }
-    if (source.xinl > geometry.xbounds[geometry.isize]) {
-        source.xinl = geometry.xbounds[geometry.isize];
-    }
-    
-    /* Now search for initial region x index range */
-    printf("Index ranges for radiation field:\n");
-    source.ixinl = 0;
-    while ((geometry.xbounds[source.ixinl] <= source.xinl) &&
-           (geometry.xbounds[source.ixinl + 1] < source.xinl)) {
-        source.ixinl++;
-    }
-    
-    source.ixinu = source.ixinl - 1;
-    while ((geometry.xbounds[source.ixinu] <= source.xinu) &&
-           (geometry.xbounds[source.ixinu + 1] < source.xinu)) {
-        source.ixinu++;
-    }
-    printf("i index ranges over i = %d to %d\n", source.ixinl, source.ixinu);
-    
-    /* Calculate y-direction input zones */
-    if (source.yinl < geometry.ybounds[0]) {
-        source.yinl = geometry.ybounds[0];
-    }
-    if (source.yinu <= source.yinl) {
-        source.yinu = source.yinl;  /* default a pencil beam */
-    }
-    
-    /* Check radiation field is not too big against the phantom */
-    if (source.yinu > geometry.ybounds[geometry.jsize]) {
-        source.yinu = geometry.ybounds[geometry.jsize];
-    }
-    if (source.yinl > geometry.ybounds[geometry.jsize]) {
-        source.yinl = geometry.ybounds[geometry.jsize];
-    }
-    
-    /* Now search for initial region y index range */
-    source.iyinl = 0;
-    while ((geometry.ybounds[source.iyinl] <= source.yinl) &&
-           (geometry.ybounds[source.iyinl + 1] < source.yinl)) {
-        source.iyinl++;
-    }
-    source.iyinu = source.iyinl - 1;
-    while ((geometry.ybounds[source.iyinu] <= source.yinu) &&
-           (geometry.ybounds[source.iyinu + 1] < source.yinu)) {
-        source.iyinu++;
-    }
-    printf("j index ranges over i = %d to %d\n", source.iyinl, source.iyinu);
-    
-    /* Calculate collimator sizes */
-    source.xsize = source.xinu - source.xinl;
-    source.ysize = source.yinu - source.yinl;
-    
-    /* Read source charge */
-    if (getInputValue(buffer, "charge") != 1) {
-        printf("Can not find 'charge' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    source.charge = atoi(buffer);
-    if (source.charge < -1 || source.charge > 1) {
-        printf("Particle kind not recognized.\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    /* Read source SSD */
-    if (getInputValue(buffer, "ssd") != 1) {
-        printf("Can not find 'ssd' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    source.ssd = atof(buffer);
-    if (source.ssd < 0) {
-        printf("SSD must be greater than zero.\n");
-        exit(EXIT_FAILURE);
-    }
-    
-    /* Print some information for debugging purposes */
-    if (verbose_flag) {
-        printf("Source information :\n");
-        printf("\t Charge = %d\n", source.charge);
-        printf("\t SSD (cm) = %f\n", source.ssd);
-        printf("Collimator :\n");
-        printf("\t x (cm) : min = %f, max = %f\n", source.xinl, source.xinu);
-        printf("\t y (cm) : min = %f, max = %f\n", source.yinl, source.yinu);
-        printf("Sizes :\n");
-        printf("\t x (cm) = %f, y (cm) = %f\n", source.xsize, source.ysize);
-    }
     
     return;
 }
@@ -1634,17 +1514,9 @@ void accumulateResults(int iout, int nhist, int nbatch)
     double endep, endep2, unc_endep;
 
     /* Calculate incident fluence */
-    double inc_fluence = 0.0;
-    double beam_area = source.xsize*source.ysize;
+    double inc_fluence = (double)nhist;
     double mass;
-    
-    if (beam_area == 0.0) {
-        inc_fluence = (double)nhist;
-    }
-    else {
-        inc_fluence = (double)nhist/beam_area;
-    }
-    
+            
     for (int iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
@@ -1692,6 +1564,20 @@ void accumulateResults(int iout, int nhist, int nbatch)
                 /* Store output quantities */
                 score.accum_endep[irl] = endep;
                 score.accum_endep2[irl] = unc_endep;
+            }
+        }
+    }
+    
+    /* Zero dose in air */
+    for (int iz=0; iz<geometry.ksize; iz++) {
+        for (int iy=0; iy<geometry.jsize; iy++) {
+            for (int ix=0; ix<geometry.isize; ix++) {
+                irl = 1 + ix + iy*imax + iz*ijmax;
+                
+                if(geometry.med_densities[irl-1] < 0.044) {
+                    score.accum_endep[irl] = 0.0;
+                    score.accum_endep2[irl] = 0.9999999;
+                }
             }
         }
     }
@@ -1811,7 +1697,13 @@ void initStack() {
     return;
 }
 
-void initHistory() {
+void initHistory(int ibeamlet) {
+    
+    double rnno1;
+    double rnno2;
+    
+    int ijmax = geometry.isize*geometry.jsize;
+    int imax = geometry.isize;
     
     /* Initialize first particle of the stack from source data */
     stack.np = 0;
@@ -1821,8 +1713,8 @@ void initHistory() {
     double ein = 0.0;
     if (source.spectrum) {
         /* Sample initial energy from spectrum data */
-        double rnno1 = setRandom();
-        double rnno2 = setRandom();
+        rnno1 = setRandom();
+        rnno2 = setRandom();
         
         /* Sample bin number in order to select particle energy */
         int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
@@ -1849,70 +1741,108 @@ void initHistory() {
     score.ensrc += ein;
     
     /* Set particle position. First obtain a random position in the rectangle
-     defined by the collimator */
-    double rxyz = 0.0;
-    if (source.xsize == 0.0 || source.ysize == 0.0) {
-        stack.x[stack.np] = source.xinl;
-        stack.y[stack.np] = source.yinl;
-        
-        rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
-                    pow(stack.y[stack.np], 2.0));
-        
-        /* Get direction along z-axis */
-        stack.w[stack.np] = source.ssd/rxyz;
-        
-    } else {
-        double fw;
-        while (1) { /* rejection sampling of the initial position */
-            double rnno3 = setRandom();
-            stack.x[stack.np] = rnno3*source.xsize + source.xinl;
-            rnno3 = setRandom();
-            stack.y[stack.np] = rnno3*source.ysize + source.yinl;
-            rnno3 = setRandom();
-            rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
-                        pow(stack.y[stack.np], 2.0));
-            
-            /* Get direction along z-axis */
-            stack.w[stack.np] = source.ssd/rxyz;
-            
-            fw = pow(stack.w[stack.np], 3.0);
-            if (rnno3 < fw) {
-                break;
-            }
-        }   /* end of while loop */
-    }
-    /* Set position of the particle in front of the geometry */
-    stack.z[stack.np] = geometry.zbounds[0];
+     defined by the bixel at isocenter*/    
+    double xiso = 0.0; 
+    double yiso = 0.0;
+    double ziso = 0.0;
     
-    /* At this point the position has been found, calculate particle
-     direction */
-    stack.u[stack.np] = stack.x[stack.np]/rxyz;
-    stack.v[stack.np] = stack.y[stack.np]/rxyz;
+    rnno1 = setRandom();
+    rnno2 = setRandom();
+    
+    xiso = rnno1*source.xside1[ibeamlet] + rnno2*source.xside2[ibeamlet] + 
+            source.xcorner[ibeamlet];
+    yiso = rnno1*source.yside1[ibeamlet] + rnno2*source.yside2[ibeamlet] + 
+            source.ycorner[ibeamlet];
+    ziso = rnno1*source.zside1[ibeamlet] + rnno2*source.zside2[ibeamlet] + 
+            source.zcorner[ibeamlet];
+    
+    /* Norm of the resulting vector from the source of current beam to the 
+     position of the particle on bixel */
+    int ibeam = source.ibeam[ibeamlet];
+    double vnorm = sqrt(pow(xiso - source.xsource[ibeam], 2.0) + 
+            pow(yiso - source.ysource[ibeam], 2.0) + 
+            pow(ziso - source.zsource[ibeam], 2.0));
+        
+    /* Direction of the particle from position on bixel to beam source*/
+    double u = -(xiso - source.xsource[ibeam])/vnorm;
+    double v = -(yiso - source.ysource[ibeam])/vnorm;
+    double w = -(ziso - source.zsource[ibeam])/vnorm;
+    
+    /* Calculate the minimum distance from particle position on bixel to 
+     phantom boundaries */
+    double ustep = 1.0E5;
+    double dist;
+    
+    if(u > 0.0) {
+        dist = (geometry.xbounds[geometry.isize]-xiso)/u;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(u < 0.0) {
+        dist = -(xiso-geometry.xbounds[0])/u;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    if(v > 0.0) {
+        dist = (geometry.ybounds[geometry.jsize]-yiso)/v;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(v < 0.0) {
+        dist = -(yiso-geometry.ybounds[0])/v;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    if(w > 0.0) {
+        dist = (geometry.zbounds[geometry.ksize]-ziso)/w;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(w < 0.0) {
+        dist = -(ziso-geometry.zbounds[0])/w;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    /* Transport particle from bixel to surface. Adjust particle direction 
+     to be incident to phantom surface */
+    stack.x[stack.np] = xiso + ustep*u;
+    stack.y[stack.np] = yiso + ustep*v;
+    stack.z[stack.np] = ziso + ustep*w;
+    
+    stack.u[stack.np] = -u;
+    stack.v[stack.np] = -v;
+    stack.w[stack.np] = -w;
     
     /* Determine region index of source particle */
-    int ix, iy;
-    if (source.xsize == 0.0) {
-        ix = source.ixinl;
-    } else {
-        ix = source.ixinl - 1;
-        while ((geometry.xbounds[ix] <= stack.x[stack.np]) &&
-               (geometry.xbounds[ix + 1] < stack.x[stack.np])) {
-            ix++;
-        }
+    int ix = 0;
+    while ((geometry.xbounds[ix+1] < stack.x[stack.np])) {
+        ix++;
     }
-    if (source.ysize == 0.0) {
-        iy = source.iyinl;
-    } else {
-        iy = source.iyinl - 1;
-        while ((geometry.ybounds[iy] <= stack.y[stack.np]) &&
-               (geometry.xbounds[iy + 1] < stack.y[stack.np])) {
-            iy++;
-        }
-    }
-    stack.ir[stack.np] = 1 + ix + iy*geometry.isize;
     
-    /* Set statistical weight */
+    int iy = 0;
+    while ((geometry.ybounds[iy+1] < stack.y[stack.np])) {
+        iy++;
+    }
+    
+    int iz = 0;
+    while ((geometry.xbounds[iz+1] < stack.z[stack.np])) {
+        iz++;
+    }
+    
+    stack.ir[stack.np] = 1 + ix + iy*imax + iz*ijmax;
+          
+    /* Set statistical weight and distance to closest boundary*/
     stack.wt[stack.np] = 1.0;
+    stack.dnear[stack.np] = 0.0;
     
     return;
 }

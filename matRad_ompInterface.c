@@ -98,11 +98,21 @@ void mexFunction(
     //nFields = (mwSize) mxGetNumberOfElements(mcGeo);
     /* allocate memory  for storing classIDflags */
     //classIDflags = mxCalloc(nGeoStructFields, sizeof(mxClassID));
-    
-    tmpFieldPointer = mxGetField(mcSrc,0,"nBeams");
+        
+    tmpFieldPointer = mxGetField(mcSrc,0,"nBixels");
     nFields = mxGetScalar(tmpFieldPointer);
-    source.nbeams = nFields;
+    source.nbeamlets = nFields;
     
+    mexPrintf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
+    
+    tmpFieldPointer = mxGetField(mcSrc,0,"iBeam");
+    const double* iBeamPerBeamlet = mxGetPr(tmpFieldPointer);
+    
+    source.ibeam = (int*) malloc(source.nbeamlets*sizeof(int));
+    for(int i=0; i<source.nbeamlets; i++) {
+        source.ibeam[i] = (int) iBeamPerBeamlet[i] - 1; // C indexing style
+    }
+        
     tmpFieldPointer = mxGetField(mcSrc,0,"xSource");
     source.xsource = mxGetPr(tmpFieldPointer);
     
@@ -111,15 +121,7 @@ void mexFunction(
     
     tmpFieldPointer = mxGetField(mcSrc,0,"zSource");
     source.zsource = mxGetPr(tmpFieldPointer);
-    
-    tmpFieldPointer = mxGetField(mcSrc,0,"nBixels");
-    const double* nBeamletsPerField = mxGetPr(tmpFieldPointer);
-    
-    source.nbixels = malloc(source.nbeams*sizeof(int));
-    for(int i=0; i<source.nbeams; i++) {
-        source.nbixels[i] = (int) nBeamletsPerField[i];
-    }
-    
+            
     tmpFieldPointer = mxGetField(mcSrc,0,"xCorner");
     source.xcorner = mxGetPr(tmpFieldPointer);
     
@@ -147,19 +149,7 @@ void mexFunction(
     tmpFieldPointer = mxGetField(mcSrc,0,"zSide2");
     source.zside2 = mxGetPr(tmpFieldPointer);
     
-    unsigned int nBeamlets = 0;
-    
-    for(int iField=0; iField<nFields; iField++) {
-        mexPrintf("%s%d\t%s%d\n","Field ",iField, "Number of Beamlets: ", source.nbixels[iField]);
-        nBeamlets += (unsigned int) nBeamletsPerField[iField];
-        mexPrintf("%s%f %f %f\n", "Source position: ", source.xsource[iField], source.ysource[iField], source.zsource[iField]);
-        mexPrintf("%s%f %f %f\n", "Corner position: ", source.xcorner[iField*source.nbixels[iField]], source.ycorner[iField*source.nbixels[iField]], source.zcorner[iField*source.nbixels[iField]]);
-        mexPrintf("%s%f %f %f\n", "Side1 position: ", source.xside1[iField*source.nbixels[iField]+1], source.yside1[iField*source.nbixels[iField]+1], source.zside1[iField*source.nbixels[iField]+1]);
-        mexPrintf("%s%f %f %f\n", "Side2 position: ", source.xside2[iField*source.nbixels[iField]+1], source.yside2[iField*source.nbixels[iField]+1], source.zside2[iField*source.nbixels[iField]+1]);
-
-    }
-    mexPrintf("%s%d\n", "Total Number of Beamlets:", nBeamlets);
-    
+        
     //Parse Material
     tmpFieldPointer = mxGetField(mcGeo,0,"material");
     //tmpCellPointer = mxGetPr(tmpFieldPointer);
@@ -270,18 +260,6 @@ void mexFunction(
     //mexPrintf("%s: %s",input_items[nInput].key,input_items[nInput].value]);
     
     nInput++;
-    sprintf(input_items[nInput].key,"collimator bounds");
-    tmpFieldPointer = mxGetField(mcOpt,0,"colliBounds");    
-    status = mexCallMATLAB(1, &tmp2, 1,  &tmpFieldPointer, "num2str");    
-    if (status != 0)
-        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
-    else
-    {
-        tmp = mxArrayToString(tmp2);        
-        strcpy(input_items[nInput].value,tmp);
-    }
-
-    nInput++;
     sprintf(input_items[nInput].key,"charge");
     tmpFieldPointer = mxGetField(mcOpt,0,"charge");    
     status = mexCallMATLAB(1, &tmp2, 1,  &tmpFieldPointer, "num2str");    
@@ -293,18 +271,6 @@ void mexFunction(
         strcpy(input_items[nInput].value,tmp);
     }
 
-    nInput++;
-    sprintf(input_items[nInput].key,"ssd");
-    tmpFieldPointer = mxGetField(mcOpt,0,"ssd");    
-    status = mexCallMATLAB(1, &tmp2, 1,  &tmpFieldPointer, "num2str");    
-    if (status != 0)
-        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
-    else
-    {
-        tmp = mxArrayToString(tmp2);        
-        strcpy(input_items[nInput].value,tmp);
-    }
-    
     nInput++;
     sprintf(input_items[nInput].key,"global ecut");
     tmpFieldPointer = mxGetField(mcOpt,0,"global_ecut");    
@@ -428,15 +394,15 @@ void mexFunction(
     double percentage_steps = 0.01; //Steps in which the sparse matrix is allocated
     double percent_sparse = percentage_steps; //Initial percentage to allocate memory for
     //Create Output Matrix
-    mwSize nzmax = (mwSize) ceil((double)nCubeElements*(double)nBeamlets * percent_sparse);
-    plhs[0] = mxCreateSparse(nCubeElements,nBeamlets,nzmax,mxREAL);
+    mwSize nzmax = (mwSize) ceil((double)nCubeElements*(double)source.nbeamlets * percent_sparse);
+    plhs[0] = mxCreateSparse(nCubeElements,source.nbeamlets,nzmax,mxREAL);
     double *sr  = mxGetPr(plhs[0]);
     mwIndex *irs = mxGetIr(plhs[0]);
     mwIndex *jcs = mxGetJc(plhs[0]);
     mwIndex linIx = 0;
     jcs[0] = 0;
     
-    for(int ibeamlet=0; ibeamlet<nBeamlets; ibeamlet++) {
+    for(int ibeamlet=0; ibeamlet<source.nbeamlets; ibeamlet++) {
         for (int ibatch=0; ibatch<nbatch; ibatch++) {
 //             if (ibatch == 0) {
 //                 /* Print header for information during simulation */
@@ -454,7 +420,7 @@ void mexFunction(
 
             for (int ihist=0; ihist<nperbatch; ihist++) {
                 /* Initialize particle history */
-                initHistory();
+                initHistory(ibeamlet);
 
                 /* Start electromagnetic shower simulation */
                 shower();
@@ -495,7 +461,7 @@ void mexFunction(
             int oldnzmax = nzmax;
             percent_sparse += percentage_steps;
             
-            nzmax = (mwSize) ceil((double)nCubeElements*(double)nBeamlets*percent_sparse);
+            nzmax = (mwSize) ceil((double)nCubeElements*(double)source.nbeamlets*percent_sparse);
             
             
             /* Make sure nzmax increases atleast by 1. */
@@ -538,7 +504,7 @@ void mexFunction(
         
     }
     
-    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n",linIx,(double) linIx / ((double)nCubeElements*(double)nBeamlets));
+    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n",linIx,(double) linIx / ((double)nCubeElements*(double)source.nbeamlets));
     
     //Truncate the matrix to the exact size by reallocation
     mxSetNzmax(plhs[0], linIx);
