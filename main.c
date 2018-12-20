@@ -1581,6 +1581,8 @@ void accumulateResults(int iout, int nhist, int nbatch)
             }
         }
     }
+    
+    return;
 }
 
 void outputResults(char *output_file, int iout, int nhist, int nbatch) {
