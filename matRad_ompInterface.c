@@ -346,6 +346,23 @@ void mexFunction(
     double relDoseThreshold = mxGetScalar(tmpFieldPointer);
     
     mexPrintf("Using a relative dose cut-off of %f\n",relDoseThreshold);
+	
+	  //Let's use the matlab waitbar
+	
+    mxArray* waitbarHandle = 0; //The waitbar handle does not exist yet
+	  mxArray* waitbarProgress = mxCreateDoubleScalar(0.0);  //Allocate a double scalar for the progress
+	  mxArray* waitbarMessage = mxCreateString("calculate dose influence matrix for photons (ompMC) ..."); //Allocate a string for the message
+	
+	  mxArray* waitbarInputs[3]; //Array of waitbar inputs
+    mxArray* waitbarOutput[1]; //Pointer to waitbar output
+
+	  waitbarInputs[0] = waitbarProgress; 
+	  waitbarInputs[1] = waitbarMessage;
+	
+	  //Create the waitbar with h = waitbar(progress,message);
+    status = mexCallMATLAB(1,waitbarOutput,2,waitbarInputs,"waitbar");
+
+    waitbarHandle = waitbarOutput[0];
     
     // Start MC setup
     
@@ -502,7 +519,27 @@ void mexFunction(
         /* Reset accum_endep for following beamlet */
         memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
         
+		    double progress = (double) (ibeamlet+1) / (double) source.nbeamlets;
+		
+		    //Update the waitbar with waitbar(hWaitbar,progress);
+		    if (waitbarOutput && waitbarHandle)
+		    {
+			  (* mxGetPr (waitbarProgress)) = progress;
+			  waitbarInputs[0] = waitbarProgress;
+			  waitbarInputs[1] = waitbarHandle;		
+			  waitbarInputs[2] = waitbarMessage;
+			  status = mexCallMATLAB(0,waitbarOutput,2,waitbarInputs,"waitbar");
+		  }
+        
     }
+	  mxDestroyArray (waitbarProgress);
+	  mxDestroyArray (waitbarMessage);
+    if (waitbarOutput && waitbarHandle)
+	  {
+		  waitbarInputs[0] = waitbarHandle;		
+		  status = mexCallMATLAB(0,waitbarOutput,1, waitbarInputs,"close") ;
+		  mxDestroyArray(waitbarHandle);
+	  }
     
     mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n",linIx,(double) linIx / ((double)nCubeElements*(double)source.nbeamlets));
     
