@@ -14,7 +14,7 @@ rng seeds = 97 33
                               
 # start geometry
 method of input = phantom
-phantom file = ./phantoms/BOXPHANTOM.egsphant
+phantom file = ./phantoms/TG119.egsphant
 # stop geometry         
                               
 # start MC transport

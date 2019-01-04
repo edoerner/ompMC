@@ -368,6 +368,7 @@ void photo(void);
 #define XIMAX 0.5
 #define ESTEPE 0.25
 #define EPSEMFP 1.0E-5F // smallest electron mean free path
+#define SKIN_DEPTH_FOR_BCA 3
 
 struct Electron {
     double *esig0;
@@ -485,7 +486,13 @@ double spline(double s, double *x, double *a, double *b, double *c,
 /******************************************************************************/
 /* Electron interaction processes */
 void electron(void);
-
+double computeDrange(int imed, int iq, int lelke, double ekei, double ekef, 
+    double elkei, double elkef);
+double computeEloss(int imed, int iq, int irl, double rhof, 
+    double tustep, double range, double eke, double elke, int lelke);
+double msdist(int imed, int iq, double rhof, double de, double tustep, 
+    double eke, double *x_final, double *y_final, double *z_final, 
+    double *u_final, double *v_final, double *w_final);
 void rannih(void);
 
 /******************************************************************************/
@@ -1668,6 +1675,20 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
                 /* Store output quantities */
                 score.accum_endep[irl] = endep;
                 score.accum_endep2[irl] = unc_endep;
+            }
+        }
+    }
+
+    /* Zero dose in air */
+    for (int iz=0; iz<geometry.ksize; iz++) {
+        for (int iy=0; iy<geometry.jsize; iy++) {
+            for (int ix=0; ix<geometry.isize; ix++) {
+                irl = 1 + ix + iy*imax + iz*ijmax;
+                
+                if(geometry.med_densities[irl-1] < 0.044) {
+                    score.accum_endep[irl] = 0.0;
+                    score.accum_endep2[irl] = 0.9999999;
+                }
             }
         }
     }
@@ -5490,7 +5511,7 @@ void electron() {
     return;
     
     double elke;    // logarithm of kinetic energy
-    double lelke;   // index into the energy grid of tabulated funtions
+    int lelke;   // index into the energy grid of tabulated funtions
     double sigratio = 0.0;
     double rfict = 0.0; // rejection function for fictitius cross section.
     
@@ -5515,60 +5536,830 @@ void electron() {
         
         double ustep;            // projected transport distance in the
                                 // direction of motion at the start of the step
-        
-        do {    // start of ustep loop
-            if(imed != -1) {
-                /* Not vacuum. The electron mean free path must be sampled to
-                 determine how far is the next interaction */
-                
-                /* Select electron mean free path */
-                rnno = setRandom();
-                if(rnno == 0.0) {
-                    rnno = 1.0E-30;
-                }
-                demfp = fmax(-log(rnno), EPSEMFP);
-                
-                /* Prepare to aproximate cross section. First obtain energy
-                 interval of current particle */
-                elke = log(eke);
-                
-                /* lelke adjusted to C standard */
-                lelke = pwlfInterval(imed, elke, electron_data.eke1,
-                                     electron_data.eke0) - 1;
+
+        if(imed != -1) {
+            /* Not vacuum. The electron mean free path must be sampled to 
+            determine how far is the next interaction */
             
-                /* Evaluate sig0 for the fictitious method. This version uses
-                 sub-threshold energy loss as a measure of path-length. Cross
-                 section is actual cross section divided by restricted
-                 stopping power */
-                
-                /*if(electron_data.sig_ismonotone[qel]) {
-                    if(iq < 0) {
-                        sig0 = pwlf_eval(lelke, elke, elec_data->esig1, elec_data->esig0);
-                        dedx0 = pwlf_eval(lelke, elke, elec_data->ededx1, elec_data->ededx0);
-                        sig0 /= dedx0;
-                    }
-                    else {
-                        sig0 = pwlf_eval(lelke, elke, elec_data->psig1, elec_data->psig0);
-                        dedx0 = pwlf_eval(lelke, elke, elec_data->pdedx1, elec_data->pdedx0);
-                        sig0 /= dedx0;
-                    }
+            /* Select electron mean free path */
+            rnno = setRandom();
+            if(rnno == 0.0) {
+                rnno = 1.0E-30;
+            }
+            demfp = fmax(-log(rnno), EPSEMFP);
+            
+            /* Prepare to aproximate cross section. First obtain energy
+                interval of current particle */
+            elke = log(eke);
+            
+            /* lelke adjusted to C standard */
+            lelke = pwlfInterval(imed, elke, electron_data.eke1,
+                                    electron_data.eke0) - 1;
+
+            /* Evaluate sig0 for the fictitious method. This version uses
+            sub-threshold energy loss as a measure of path-length. Cross
+            section is actual cross section divided by restricted
+            stopping power */
+
+            if(electron_data.sig_ismonotone[qel*geometry.nmed+imed]) {
+                if(iq < 0) {
+                    sig0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.esig1, electron_data.esig0);
+                    dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.ededx1, electron_data.ededx0);
+                    sig0 /= dedx0;
                 }
                 else {
-                    // Use the global maximum values determined in the host.
-                    if(iq < 0) {
-                        sig0 = elec_data->esig_e;
-                    }
-                    else {
-                        sig0 = elec_data->psig_e;
-                    }
-                }*/
-                
-            } // end of non-vacuum test
+                    sig0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.psig1, electron_data.psig0);
+                    dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.pdedx1, electron_data.pdedx0);
+                    sig0 /= dedx0;
+                }
+            }
+            else {
+                /* Use the global maximum values determined in the host */
+                if(iq < 0) {
+                    sig0 = electron_data.esig_e[imed];
+                }
+                else {
+                    sig0 = electron_data.psig_e[imed];
+                }
+            }
+            
+        } // end of non-vacuum test
+        
+        do {    // start of ustep loop
+            /* For each particle check step distance with user geometry. 
+            Compute size of maximum acceptable step, which is limited by 
+            multiple scattering or other approximations */
+
+			int call_howfar;    // indicates if the boundary crossing 
+								// algorithm (BCA) requires a call 
+								// to howfar
+			
+			int do_single;      // if true, exact BCA requires single scattering
+			int called_msdist;  // true, normal CH transport, false, BCA invoked
+
+			double tstep;   // total pathlength to the next discrete interaction
+			double tustep;	// total pathlength of the electron step
+
+			double total_de;    // total energy loss to next discrete interaction
+			double ekef;		// kinetic energy after a step
+
+			double ekei;        // used to calculate tstep from demfp
+			double elkei;	    // log(ekei)
+			double tuss;	    // sampled path-length to a single scattering 
+                                // event
+			double total_tstep; // total path-length to next discrete 
+                                // interaction
+
+			double range;       // electron range
+            double the_range; 
+
+			double p2;      // electron momentum times c, squared
+			double beta2;   // electron speed in units of c, squared
+			double etap;	// Correction to Moliere screening angle from 
+                            // PWA cross sections
+
+			double tvstep;	// curved path-length calculated from tustep
+			double de;		// energy loss to dedx
+
+			double x_final; // position at the end of step
+            double y_final; 
+            double z_final; 
+			double u_final; // direction at the end of step
+            double v_final;
+            double w_final;
+
+			if (imed == -1) {   // vacuum
+				tstep = 10.0E8; // i.e. infinity
+				ustep = tstep;
+				tustep = ustep;
+				call_howfar = 1;	// always howfar is called for vacuum 
+									// steps
+			}
+			else {  // non-vacuum
+				
+				/* As the cross-section is interactions per energy loss, no 
+                density scaling is required here */
+
+				if (sig0 <= 0.0f) {
+					/* This can happen if the threshold for brems (ap + rm)
+					is greater than ae. Ask for step same as vacuum */
+					tstep = 10.0E8; //  i.e. infinity
+					sig0 = 1.0E-15;
+				}
+				else {
+					/* Calculate tstep from differential electron mean 
+					free path. Once the sub-threshold processes energy
+					loss to the next discrete interaction is determined,
+					the corresponding path-length is calculated */
+
+					if (compute_tstep) {
+						total_de = demfp/sig0;
+						ekef = eke - total_de;
+
+						if (ekef <= electron_data.e_array[imed*MXEKE+0]) {
+							tstep = 10.0E8f; // i.e. infinity
+						}
+						else {
+							double elkef = log(ekef);
+
+							/* lelkef adjusted to C standard */
+							int lelkef = pwlfInterval(imed, elkef, 
+                                electron_data.eke1, electron_data.eke0) - 1;
+
+							if (lelkef == lelke) {
+								/* Initial and final energy are in the same
+								interval of the PWLF function */
+
+								/* The following computes the path-length 
+								traveled while going from energy eke to ekef */
+								tstep = computeDrange(imed, iq, lelke, 
+                                    eke, ekef, elke, elkef);
+
+							}
+							else {
+								/* Initial and final energy are in 
+								different intervals of the PWL function */
+
+								/* The calculation of the path length must be 
+                                divided among the intervals of the PWL 
+                                function */
+
+								/* Calculate range from ekef to E(lelkfef+1) 
+                                and from E(lelke) to eke and add the pre-calc 
+								range from E(lelfke+1) to E(lelke) */
+
+								/* First calculate range from eke to E(lelke) */
+								ekei = electron_data.e_array[imed*MXEKE+lelke];
+								elkei = ((double)(lelke + 1) - 
+                                    electron_data.eke0[imed])/
+                                    electron_data.eke1[imed];
+								tuss = computeDrange(imed, iq, lelke, 
+                                    eke, ekei, elke, elkei);
+
+								/* Then from E(lelfke+1) to ekef */
+								ekei = electron_data.e_array[imed*MXEKE+
+                                    lelkef+1];
+								elkei = ((double)(lelkef + 2) - 
+                                    electron_data.eke0[imed])/
+                                    electron_data.eke1[imed];
+								tstep = computeDrange(imed, iq, lelkef, 
+                                    ekei, ekef, elkei, elkef);
+
+								/* Finally add the pre-calc range from 
+                                E(lelfke+1) to E(lelke) */
+								tstep += tuss + 
+            electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE+lelke] - 
+            electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE+lelkef+1];
+							}
+						}
+
+						total_tstep = tstep;
+						compute_tstep = 0;  // i.e. false
+					}   // end of compute_tstep if sentence
+
+					tstep = total_tstep/rhof; // non-default density scaling
+
+				}	// end sig if-else
+
+				/* Calculate stopping power */
+				if (iq < 0) {   // electron
+					dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.ededx1, electron_data.ededx0);
+				}
+				else {  // positron
+					dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.pdedx1, electron_data.pdedx0);
+				}
+				double dedx = rhof*dedx0;   // stopping power after density 
+                                            // scaling
+
+				/* Determine maximum step-size */
+				double tmxs = pwlfEval(imed*MXEKE+lelke, elke, 
+                    electron_data.tmxs1, electron_data.tmxs0);
+				tmxs /= rhof;
+
+				/* Compute the range to E_min(med), where e_min is the 
+				first energy in the table. Limit the electron step to 
+				this range */
+				if (do_range) {
+					ekei = electron_data.e_array[imed*MXEKE+lelke];
+					elkei = ((double)(lelke + 1) - electron_data.eke0[imed])/
+                        electron_data.eke1[imed];
+					range = computeDrange(imed, iq, lelke, eke, ekei, 
+                        elke, elkei);
+					the_range = range + 
+            electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE+lelke];
+					do_range = 0;   // i.e. false
+				}
+				range = the_range/rhof;
+
+				/* The following finds the minimum between tstep, tmxs and 
+				range. The result is stored in tustep, the total 
+				path-length to the next interaction */
+				tustep = fmin(fmin(tstep, tmxs), range);
+
+				/* Optional tustep restriction in EM field should be here */
+
+				/* Obtain perpendicular distance to nearest boundary */
+				double tperp = hownear();
+				stack.dnear[np] = tperp;
+
+				/* Set the minimum step size for a CH step, due to efficiency 
+				considerations. It is calculated with eke and elke */
+				double blccl = region.rhof[irl]*electron_data.blcc[imed];
+				double xccl = region.rhof[irl]*electron_data.xcc[imed];
+				p2 = eke*(eke+2.0*RM);
+				beta2 = p2/(p2 + pow(RM, 2.0));
+
+				/* Now calculate the elastic scattering MFP, based on PWA
+				cross sections */
+				if (iq < 0) {
+					etap = pwlfEval(MXEKE*imed+lelke, elke, 
+                        electron_data.etae_ms1, electron_data.etae_ms0);
+				}
+				else {
+					etap = pwlfEval(MXEKE*imed+lelke, elke, 
+                        electron_data.etap_ms1, electron_data.etap_ms0);
+				}
+
+				double ms_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+                    electron_data.blcce1, electron_data.blcce0);
+				blccl = blccl/etap/(1.0 + 0.25*etap*xccl/blccl/p2)*ms_corr;
+
+				double ssmfp = beta2 / blccl;   // mean free path to one single 
+                                                // elastic scattering event
+
+				/* Finally, set the the minimum CH step size */
+				double skindepth = SKIN_DEPTH_FOR_BCA*ssmfp;
+
+				/* Adjust tustep with respect to perpendicular distance to
+				closest boundary and minimum CH step size */
+				tustep = fmin(tustep, fmax(tperp, skindepth));
+
+				/* The transport logic below is determined by the boolean 
+				variables call_howfar and do_single */
+				int is_chstep = 0;  // i.e. false
+
+				if ((tustep <= tperp) && (tustep > skindepth)) {
+					/* The particle is further a boundary than skindepth, 
+					so perform a normal CH step */
+
+					call_howfar = 0;    // do not call howfar
+					do_single = 0;      // ms => no single scattering
+					called_msdist = 1;  // remember than msdist has been called
+
+					/* Compute energy loss due to sub-threshold processes 
+					for a path-length tustep */
+					de = computeEloss(imed, iq, irl, region.rhof[irl],
+					    tustep,	range, eke, elke, lelke);
+
+					tvstep = tustep;
+					is_chstep = 1;  // i.e. true
+
+					/* msdist models multiple elastic scattering and 
+					spatial deflections for the path-length tustep.
+					ustep is the straight-line distance between 
+					initial and final position of the particle */
+					ustep = msdist(imed, iq, region.rhof[irl], de, tustep, eke,
+                    	&x_final, &y_final, &z_final,
+                        &u_final, &v_final, &w_final);
+				}
+				else {
+					/* We are within a skindepth from a boundary, invoke
+					the boundary-crossing algorithm (exact) */					
+					called_msdist = 0;  // remember that msdist has not 
+										// been called.
+
+					/* Now cross the boundary in single scattering mode.
+					We use always exact BCA */
+
+					/* sample the distance to a single scattering event */
+					double rnno = setRandom();
+					if (rnno < 1.0E-30) {
+						rnno = 1.0E-30;
+					}
+
+                    /* Calculate number of mean free paths (elastic scattering cross-section)*/
+					double lambda = (-1.0)*log(1.0 - rnno); 
+					double lambda_max = 0.5*blccl*RM/dedx*pow((eke/RM+1.0),3.0);
+
+					if (lambda < lambda_max) {
+						tuss = lambda*ssmfp*(1.0 - 0.5*lambda/lambda_max);
+					}
+					else {
+						tuss = 0.5*lambda*ssmfp;
+					}
+					if (tuss < tustep) {
+						tustep = tuss;
+						do_single = 1;  // i.e. true
+					}
+					else {
+						do_single = 0;  // i.e. false
+					}
+
+					ustep = tustep;
+
+					if (ustep < tperp) {
+						call_howfar = 0;
+					}
+					else {
+						call_howfar = 1;
+					}
+				} // end of skindepth if-else
+			}   // end of non-vacuum if-else 
+			
+			// // Optional ustep restriction in EM field should be here.
+			// // SET-USTEP-EM-FIELD
+			// int irnew = p.ir;	// default new region is old region
+			// idisc = 0;		// default is no discard (this flag is initialized here)
+			
+			// if (call_howfar == true) {
+			// 	howfar(&p, ngrid,
+			// 		xbounds, ybounds, zbounds,
+			// 		&idisc, &irnew, &ustep);
+			// }			
+			
+			// // Now see if user requested discard through idisc, returned 
+			// // by howfar.
+			// if (idisc > 0) {
+			// 	/*****************************************
+			// 	* User requested electron discard section
+			// 	*****************************************/
+			// 	gstack_stat[gid].y = ECUT;
+
+			// 	/********************************
+			// 	* Positron annihilation section
+			// 	********************************/
+			// 	if (iq > 0) {
+			// 		// ED: originally if positron RM is added. I do not know why...
+			// 		edep = eie + RM;
+
+			// 		// The particle is a positron. Produce annihilation gammas
+			// 		// if edep < eie.
+			// 		if (edep < eie) {
+			// 			// ED: deposit positron kinetic energy inmediatly, although this 
+			// 			// could be done inside annih_at_rest kernel.
+			// 			ausgab(edep, &p, score);
+			// 			gstack_stat[gid].y = RANNIH;
+			// 		}
+			// 	}
+			// 	/**************************************
+			// 	* End of Positron annihilation section
+			// 	**************************************/
+
+			// 	// Save particle phase space data to stack.
+			// 	gstack_ir[pid] = p.ir;	// region number
+			// 	gstack_iq[pid] = p.iq;	// particle charge
+			// 	gstack_r[pid] = p.r;	// position
+			// 	gstack_u[pid] = p.u;	// direction
+			// 	gstack_e[pid] = p.e;	// photon energy
+			// 	gstack_dnear[pid] = p.dnear;
+				
+			// 	return;
+			// 	/**************************************
+			// 	* End of User electron discard section
+			// 	**************************************/
+			// }
+
+			// double vstep;	// transport distance after truncation by howfar
+			// int irold;		// region before transport
+			
+			// if (ustep == 0.0f || med == -1) {
+			// 	// Do fast step.
+			// 	if (ustep != 0.0f) {
+			// 		// Step in vacuum
+			// 		vstep = ustep;	// vstep is ustep truncated by howfar
+			// 		tvstep = vstep; // tvstep is the total curved path associated with vstep
+
+			// 		// Transport the particle
+			// 		p.r += p.u * vstep;
+			// 		irold = p.ir; // save previous region
+			// 	} // end of vacuum step
+
+			// 	// Electron region change.
+			// 	p.ir = irnew;
+			// 	med = g_med[p.ir];
+
+			// 	if (eie <= g_ecut[p.ir]) {
+			// 		/****************************************
+			// 		* Electron cutoff energy discard section
+			// 		****************************************/
+			// 		gstack_stat[gid].y = ECUT;
+
+			// 		/********************************
+			// 		* Positron annihilation section
+			// 		********************************/
+			// 		if (iq > 0) {
+			// 			edep = eie - RM;
+
+			// 			// The particle is a positron. Produce annihilation gammas
+			// 			// if edep < eie.
+			// 			if (edep < eie) {
+			// 				// ED: deposit positron kinetic energy inmediatly, although this 
+			// 				// could be done inside annih_at_rest kernel.
+			// 				ausgab(edep, &p, score);
+			// 				gstack_stat[gid].y = RANNIH;
+			// 			}
+			// 		}
+			// 		/**************************************
+			// 		* End of Positron annihilation section
+			// 		**************************************/
+
+			// 		// Save particle phase space data to stack.
+			// 		gstack_ir[pid] = p.ir;	// region number
+			// 		gstack_iq[pid] = p.iq;	// particle charge
+			// 		gstack_r[pid] = p.r;	// position
+			// 		gstack_u[pid] = p.u;	// direction
+			// 		gstack_e[pid] = p.e;	// photon energy
+			// 		gstack_dnear[pid] = p.dnear;
+				
+			// 		return;
+			// 		/***********************************************
+			// 		* End of Electron cutoff energy discard section
+			// 		***********************************************/
+			// 	}
+
+			// 	break; // exit ustep loop. Go try another big step in (possibly) new medium
+			// } 
+
+			// vstep = ustep;
+
+			// if (call_howfar == true) {
+
+			// 	// We are in single scattering mode.
+			// 	tvstep = vstep;
+			// 	if (tvstep != tustep) {
+			// 		// Boundary was crossed. Shut off single scattering.
+			// 		do_single = false;
+			// 	}
+
+			// 	// Fourth order technique for dedx. Must be done for a 
+			// 	// single scattering step.
+			// 	de = compute_eloss(medium_data,
+			// 		elec_data,
+			// 		p.ir,
+			// 		p.iq,
+			// 		med,
+			// 		g_rhof[p.ir],
+			// 		tvstep,
+			// 		range,
+			// 		eke,
+			// 		elke,
+			// 		lelke);
+			// }
+			// else {
+			// 	// call_howfar = false. Step has not been reduced due to 
+			// 	// boundaries.
+			// 	tvstep = tustep;
+			// 	if (called_msdist == false) {
+			// 		// Second order technique for dedx. Already done in a 
+			// 		// normal CH step with call to msdist.
+			// 		de = compute_eloss(medium_data,
+			// 			elec_data,
+			// 			p.ir,
+			// 			p.iq,
+			// 			med,
+			// 			g_rhof[p.ir],
+			// 			tvstep,
+			// 			range,
+			// 			eke,
+			// 			elke,
+			// 			lelke);
+			// 	}
+			// } // end of call_howfar if-else sentence.
+
+			// edep = de;			// energy deposition variable for user.
+			// ekef = eke - de;	// final kinetic energy
+
+			// // Now do multiple scattering.
+			// double sinthe, costhe; // sin() and cos() of deflection angle.
+			// if (called_msdist == false) { // everything done if called_msdist = true
+			// 	if (do_single) {
+			// 		// Single scattering
+			// 		double ekems = fmax(ekef, g_ecut[p.ir] - RM); // kinetic energy used to sample MS angle (normally midpoint)
+			// 		p2 = ekems * (ekems + 2.0f*RM);
+			// 		beta2 = p2 / (p2 + RM * RM);
+			// 		double chia2 = elec_data->xcc / (4.0f*elec_data->blcc*p2); // Multiple scattering screening angle
+
+			// 		// We always consider spin effects.
+			// 		double elkems = log(ekems);
+			// 		int lelkems = pwlf_interval(elkems, elec_data->eke) - 1;
+
+			// 		if (iq < 0) {
+			// 			etap = pwlf_eval(lelkems, elkems, elec_data->etae_ms);
+			// 		}
+			// 		else {
+			// 			etap = pwlf_eval(lelkems, elkems, elec_data->etap_ms);
+			// 		}
+			// 		chia2 *= etap;
+
+			// 		sscat(elec_data,
+			// 			sp_data,
+			// 			&rng,
+			// 			chia2,
+			// 			elkems,
+			// 			beta2,
+			// 			qel,
+			// 			med,
+			// 			&costhe,
+			// 			&sinthe);
+
+			// 	}
+			// 	else {
+			// 		// No deflection in single scattering mode.
+			// 		sinthe = 0.0f;
+			// 		costhe = 1.0f;
+			// 	}
+			// } // end of called_msdist if sentence
+
+			// // We now know distance and amount of energy loss for this 
+			// // step, and the scattering angle. Now is time to do the 
+			// // transport.
+			// the_range -= tvstep * rhof;
+
+			// if (called_msdist == false) {
+			// 	// Calculate deflection and scattering. This has not been done in msdist.
+			// 	r_final = p.r + p.u * vstep;
+
+			// 	if (do_single) {
+			// 		// Apply the deflection, save call to uphi if no 
+			// 		// deflection in a single scattering mode
+			// 		uphi21(&uphi, &p, &rng, costhe, sinthe);
+			// 		u_final = p.u;
+			// 	}
+			// 	else {
+			// 		u_final = p.u;
+			// 	}
+			// }
+
+			// // The electron step is about to occur, score the energy deposited.			
+			// ausgab(edep, &p, score);
+
+			// // Transport the particle.
+			// p.r = r_final;
+			// p.u = u_final;
+			// p.dnear -= vstep;
+			// irold = p.ir;		// save the previous region
+
+			// // Now done with multiple scattering, update energy and see if 
+			// // below cut below substracts only energy deposited.
+			// eie -= edep;
+			// p.e = eie;
+			
+			// if (irnew == p.ir && eie <= g_ecut[p.ir]) {
+			// 	/****************************************
+			// 	* Electron cutoff energy discard section
+			// 	****************************************/
+			// 	gstack_stat[gid].y = ECUT;
+				
+			// 	/********************************
+			// 	* Positron annihilation section
+			// 	********************************/
+			// 	if (iq > 0) {
+			// 		edep = eie - RM;
+
+			// 		// The particle is a positron. Produce annihilation gammas
+			// 		// if edep < eie.
+			// 		if (edep < eie) {
+			// 			// ED: deposit positron kinetic energy inmediatly, although this 
+			// 			// could be done inside annih_at_rest kernel.
+			// 			ausgab(edep, &p, score);
+			// 			gstack_stat[gid].y = RANNIH;
+			// 		}
+			// 	}
+			// 	/**************************************
+			// 	* End of Positron annihilation section
+			// 	**************************************/
+
+			// 	// Save particle phase space data to stack.
+			// 	gstack_ir[pid] = p.ir;	// region number
+			// 	gstack_iq[pid] = p.iq;	// particle charge
+			// 	gstack_r[pid] = p.r;	// position
+			// 	gstack_u[pid] = p.u;	// direction
+			// 	gstack_e[pid] = p.e;	// photon energy
+			// 	gstack_dnear[pid] = p.dnear;
+				
+			// 	return;
+			// 	/***********************************************
+			// 	* End of Electron cutoff energy discard section
+			// 	***********************************************/
+			// }
+
+			// medold = med;	// save previous region
+			// if (med != -1) {
+			// 	eke = eie - RM; // update kinetic energy
+			// 	elke = log(eke);
+
+			// 	// Get updated interval.
+			// 	lelke = pwlf_interval(elke, elec_data->eke)- 1;
+			// }
+
+			// if (irnew != irold) {
+			// 	// Electron region change.
+			// 	p.ir = irnew;
+			// 	med = g_med[p.ir];
+			// 	rhof = g_rhof[p.ir];
+			// }
+			
+			// if (eie <= g_ecut[p.ir]) {
+			// 	/****************************************
+			// 	* Electron cutoff energy discard section
+			// 	****************************************/
+			// 	gstack_stat[gid].y = ECUT;
+
+			// 	/********************************
+			// 	* Positron annihilation section
+			// 	********************************/
+			// 	if (iq > 0) {
+			// 		edep = eie - RM;
+
+			// 		// The particle is a positron. Produce annihilation gammas
+			// 		// if edep < eie.
+			// 		if (edep < eie) {
+			// 			// ED: deposit positron kinetic energy inmediatly, although this 
+			// 			// could be done inside annih_at_rest kernel.
+			// 			ausgab(edep, &p, score);
+			// 			gstack_stat[gid].y = RANNIH;
+			// 		}
+			// 	}
+			// 	/**************************************
+			// 	* End of Positron annihilation section
+			// 	**************************************/
+
+			// 	// Save particle phase space data to stack.
+			// 	gstack_ir[pid] = p.ir;	// region number
+			// 	gstack_iq[pid] = p.iq;	// particle charge
+			// 	gstack_r[pid] = p.r;	// position
+			// 	gstack_u[pid] = p.u;	// direction
+			// 	gstack_e[pid] = p.e;	// photon energy
+			// 	gstack_dnear[pid] = p.dnear;
+
+			// 	return;
+			// 	/***********************************************
+			// 	* End of Electron cutoff energy discard section
+			// 	***********************************************/
+			// }
+
+			// if (med != medold) {
+			// 	break; // exit to tstep loop
+			// }
+
+			// // Update demfp. As energy loss is used as the 'path-length' 
+			// // variable, it just substracts the energy loss for the step.
+			// demfp -= de * sig0; // save_de should be used instead if 
+			// 					// de-fluctuation is implemented.
+			// total_de -= de;
+			// total_tstep -= tvstep * g_rhof[p.ir];
+			// if (total_tstep < 1.0E-9f) {
+			// 	demfp = 0.0f;
+			// }
 
         } while (demfp >= EPSEMFP); // end of ustep loop
+
     } while (rfict >= sigratio);    // end of tstep loop
     
     return;
+}
+
+double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
+                     double elkei, double elkef) {
+    /* The following function computes the path-length traveled while going from
+	energy ekei to energy ekef, both energies being in the same
+	interval of the PWL function, whose index is given by lekle. 
+	elkei and elkef are the logarithms of ekei and ekef */
+
+	/* This function is based on logarithmic interpolation as
+	used in EGSnrc (i.e. dedx = a + b*Log(E) ) and a power series expansion
+	of the ExpIntegralEi function that is the result of the integration */
+
+	double dedxmid; 
+    double aux;
+	double fedep = 1.0 - ekef / ekei;
+
+	/* First evaluate the logarithm of the energy midpoint */
+	double elktmp = 0.5*(elkei + elkef +
+		0.25*pow(fedep, 2.0)*(1.0 + fedep*(1.0 + 0.875*fedep)));
+
+	if (iq < 0) {
+		dedxmid = pwlfEval(MXEKE*imed+lelke, elktmp, 
+            electron_data.ededx1, electron_data.ededx0);
+		dedxmid = 1.0/dedxmid;
+		aux = electron_data.ededx1[MXEKE*imed+lelke]*dedxmid;
+	}
+	else {
+		dedxmid = pwlfEval(MXEKE*imed+lelke, elktmp, 
+            electron_data.pdedx1, electron_data.pdedx0);
+		dedxmid = 1.0/dedxmid;
+		aux = electron_data.pdedx1[MXEKE*imed+lelke]*dedxmid;
+	}
+
+	aux *= (1.0 + 2.0*aux)*(fedep/(2.0 - fedep))*(fedep/(2.0 - fedep))/6.0;
+
+	return fedep*ekei*dedxmid*(1.0 + aux);
+}
+
+double computeEloss(int imed, int iq, int irl, double rhof, 
+    double tustep, double range, double eke, double elke, int lelke) {
+
+    /* This function computes the energy loss due to sub-threshold
+	processes for a path-length tustep. The energy at the beginning of
+	the step is eke, elke = Log(eke), lelke is the interval index for 
+	the PWLF interpolation */
+	double aux = 0.0;
+	double dedxmid;
+	double de;
+	double fedep;
+
+	int qel = (1+iq)/2;
+
+	/* Calculate the range between the initial energy and the next lower energy 
+	on the interpolation grid */
+	double tuss = range - 
+        electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE+lelke]/rhof;
+
+	if (tuss >= tustep) {
+		/* Final energy is in the same interpolation bin. Use the EGSnrc 
+		logarithmic interpolation method */
+
+		if (iq < 0) {
+			dedxmid = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.ededx1, electron_data.ededx0);
+			aux = electron_data.ededx1[imed*MXEKE+lelke]/dedxmid;
+		}
+		else {
+			dedxmid = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.pdedx1, electron_data.pdedx0);
+			aux = electron_data.pdedx1[imed*MXEKE+lelke]/dedxmid;
+		}
+
+		de = dedxmid*tustep*rhof;
+		fedep = de/eke;
+		de *= (1.0 - 0.5*fedep*aux*(1.0 - 0.333333*fedep*(aux - 1.0 - 
+            0.25*fedep*(2.0 - aux*(4.0 - aux)))));
+	}
+	else {
+		/* Must find first the table index where the step ends using 
+		pre-calculated ranges */
+		int lelktmp = lelke;
+
+		/* now tuss is the range of the final energy 
+		electron scaled to the default mass density 
+		from PEGS4 */
+		tuss = (range - tustep)*rhof;
+
+		if (tuss <= 0) {
+			de = eke - pegs_data.te[imed]*0.99;
+		}
+		/* i.e., if the step we intend to take is longer than the particle 
+        range, the particle energy goes down to the threshold (eke is the 
+        initial particle energy) */
+
+		/* Originally the entire energy was lost, but msdist is not prepared to 
+        deal with such large eloss fractions */
+		else {
+			while (tuss < electron_data.range_ep[qel*geometry.nmed*MXEKE+
+                    imed*MXEKE+lelktmp]) {
+				lelktmp -= 1;
+			}
+			double elktmp = (lelktmp + 2.0 - electron_data.eke0[imed])/
+                electron_data.eke1[imed];
+			double eketmp = electron_data.e_array[qel*geometry.nmed*MXEKE+
+                imed*MXEKE+lelktmp];
+
+			tuss = (electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE
+                +lelktmp+1]-tuss)/rhof;
+
+			if (iq < 0) {
+				dedxmid = pwlfEval(MXEKE*imed+lelktmp, elktmp, 
+                    electron_data.ededx1, electron_data.ededx0);
+				aux = electron_data.ededx1[MXEKE*imed+lelktmp]/dedxmid;
+			}
+			else {
+				dedxmid = pwlfEval(MXEKE*imed+lelktmp, elktmp, 
+                    electron_data.pdedx1, electron_data.pdedx0);
+				aux = electron_data.pdedx1[MXEKE*imed+lelktmp]/dedxmid;
+			}
+			de = dedxmid*tuss*rhof;
+			fedep = de / eketmp;
+			de *= (1.0 - 0.5*fedep*aux*(1.0 - 0.333333*fedep*(aux - 1.0 - 
+                0.25*fedep*(2.0 - aux*(4.0 - aux)))));
+
+			de += eke - eketmp;
+		}
+	}
+
+	return de;
+}
+
+double msdist(int imed, int iq, double rhof, double de, double tustep, 
+    double eke, double *x_final, double *y_final, double *z_final, 
+    double *u_final, double *v_final, double *w_final) {
+
+    return 0.0;
 }
 
 void rannih() {
