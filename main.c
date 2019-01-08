@@ -218,6 +218,20 @@ struct Uphi {
     double cosphi, sinphi;
 };
 
+struct Mscats {
+    /* This structure holds data saved between mscat calls */
+    int i;
+    int j;
+    double omega2;
+};
+
+struct Spinr {
+    /* This structure holds data saved between spinRejection calls */
+    int i;
+    int j;
+};
+
+
 void shower(void);
 void transferProperties(int npnew, int npold);
 void uphi21(struct Uphi *uphi, double costhe, double sinthe);
@@ -493,6 +507,9 @@ double computeEloss(int imed, int iq, int irl, double rhof,
 double msdist(int imed, int iq, double rhof, double de, double tustep, 
     double eke, double *x_final, double *y_final, double *z_final, 
     double *u_final, double *v_final, double *w_final);
+void mscat(int imed, int qel, int *spin_index, int *find_index, 
+    double elke, double beta2, double q1,  double lambda, double chia2, 
+    double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r);
 void rannih(void);
 
 /******************************************************************************/
@@ -6359,7 +6376,134 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
     double eke, double *x_final, double *y_final, double *z_final, 
     double *u_final, double *v_final, double *w_final) {
 
+    int qel = (1 + iq)/2;   // = 0 for electrons, = 1 for positrons
+    
+    /* The following auxiliary variables must persist among calls to mscat and 
+    related functions */
+    struct Mscats m_scat;
+    struct Spinr spin_r;
+
+    double blccc = electron_data.blcc[imed];
+    double xcccc = electron_data.xcc[imed];
+
+    /* Commonly used factors */
+    double e = eke - 0.5*de;
+	double tau = e/RM;  // average kinetic energy over the step divided by 
+                        // electron mass
+	double tau2 = pow(tau, 2.0);
+	double epsilon = de/eke;    // fractional energy loss
+	double epsilonp = de/e;
+
+	e *= (1.0 - pow(epsilonp, 2.0)*(6.0 + 10.0*tau + 5.0*tau2)/(24.0*tau2 + 
+        72.0*tau + 48.0));
+
+	double p2 = e*(e + 2.0*RM); // average momentum over the step
+	double beta2 = p2/(p2 + pow(RM, 2.0));  // speed at e in units of c, squared
+	double chia2 = xcccc/(4.0*p2*blccc);    // screening angle, note: our chia2 
+										    // is Moliere's chia2/4
+    
+	double lambda = 0.5*tustep*rhof*blccc/beta2;    // distance in number of 
+                                                    // elastic scattering mean 
+                                                    // free paths for each 
+                                                    // sample of the multiple 
+                                                    // scattering angle
+
+	double temp2 = 0.166666*(4.0 + tau*(6.0 + tau*(7.0 + tau*(4.0 + tau))))*
+        (epsilonp/((tau + 1.0)*(tau + 2.0)))*
+        (epsilonp/((tau + 1.0)*(tau + 2.0)));   // auxiliary variable for energy
+                                                // loss corrections
+	lambda *= (1.0 - temp2);
+
+	double elke = log(e);
+	int lelke = pwlfInterval(imed, elke,    // adjusted to C index standard
+        electron_data.eke1, electron_data.eke0) - 1;
+    if (lelke < 1) {    // This should normally not happen
+		lelke = 0;
+		elke = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+	}
+
+    double etap;    // correction to the screening parameter derived from PWA
+	double xi_corr; // correction to the first MS moments due to spin
+	double gamma;   // q2/q1
+
+	if (qel == 0) {
+		etap = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.etae_ms1, electron_data.etae_ms0);
+		xi_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q1ce_ms1, electron_data.q1ce_ms0);
+		gamma = pwlfEval(MXEKE*imed+lelke, elke, electron_data.q2ce_ms1, 
+            electron_data.q2ce_ms0);
+	}
+	else {
+		etap = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.etap_ms1, electron_data.etap_ms0);
+		xi_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q1cp_ms1, electron_data.q1cp_ms0);
+		gamma = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q2cp_ms1, electron_data.q2cp_ms0);
+	}
+
+    double ms_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+        electron_data.blcce1, electron_data.blcce0);    // correction to the 
+                                                        // first MS moments due 
+                                                        // to spin
+	chia2 *= etap;
+
+    lambda /= (etap*(1.0 + chia2));
+	lambda *= ms_corr;
+	double chilog = log(1.0 + 1.0/chia2);
+	double q1 = 2.0*chia2*(chilog*(1.0 + chia2) - 1.0);	// first moment of the 
+                                                        // single scattering 
+                                                        // cross section
+
+	gamma = 6.0*chia2*(1.0 + chia2)*(chilog*(1.0 + 2.0*chia2) - 2.0)/q1*gamma;
+	double xi = q1*lambda; // first GS - moment
+
+    /* Sample first substep scattering angle */
+	int find_index = 1; // i.e. true
+	int spin_index = 1;
+	double w1;      // cosine of the first substep polar scattering angle
+	double sint1;   // sine of the first substep polar scattering angle
+	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
+		lambda,	chia2,	&w1, &sint1, &m_scat, &spin_r);
+
+	double cphi1;   // sine and cosine of the first azimuthal angle 
+    double sphi1;
+	double phi = 2.0*M_PI*setRandom();
+    cphi1 = cos(phi);
+    sphi1 = sin(phi);
+    
+    /* Sample second substep scattering angle */
+	double w2;      // cosine of the second substep polar scattering angle
+	double sint2;   // sine of the second substep polar scattering angle
+	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
+		lambda,	chia2,	&w2, &sint2, &m_scat, &spin_r);
+
+	double cphi2;   // sine and cosine of the second azimuthal angle 
+    double sphi2;
+	phi = 2.0*M_PI*setRandom();
+    cphi2 = cos(phi);
+	sphi2 = sin(phi);
+
+    /* Final direction of motion, relative to z-axis */
+	double u2 = sint2*cphi2;
+	double v2 = sint2*sphi2;
+	double u2p = w1*u2 + sint1*w2;
+
+    /* direction cosine after scattering */
+    double us = u2p*cphi1 - v2*sphi1;
+    double vs = u2p*sphi1 + v2*cphi1;
+    double ws = w1*w2 - sint1*u2;
+	
+
     return 0.0;
+}
+
+void mscat(int imed, int qel, int *spin_index, int *find_index, 
+    double elke, double beta2, double q1,  double lambda, double chia2, 
+    double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r) {
+
+    return;    
 }
 
 void rannih() {
