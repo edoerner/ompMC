@@ -5521,18 +5521,18 @@ void electron() {
         return;
     }
     
-    /* For the moment just discard electron and deposit its energy on spot */
-    edep = eie - RM;
-    ausgab(edep);
-    stack.np -= 1;
-    return;
-    
     double elke;    // logarithm of kinetic energy
     int lelke;   // index into the energy grid of tabulated funtions
     double sigratio = 0.0;
     double rfict = 0.0; // rejection function for fictitius cross section.
-    
-    
+
+    /* ******************************************************************* */
+    /* For the moment just discard electron and deposit its energy on spot */
+    edep = stack.e[np] - RM;
+    ausgab(edep);
+    stack.np -= 1;
+    return;
+    /* ******************************************************************* */
     
     do {    // start of tstep loop
         
@@ -5807,7 +5807,7 @@ void electron() {
                     electron_data.blcce1, electron_data.blcce0);
 				blccl = blccl/etap/(1.0 + 0.25*etap*xccl/blccl/p2)*ms_corr;
 
-				double ssmfp = beta2 / blccl;   // mean free path to one single 
+				double ssmfp = beta2/blccl;   // mean free path to one single 
                                                 // elastic scattering event
 
 				/* Finally, set the the minimum CH step size */
@@ -6290,7 +6290,9 @@ double computeEloss(int imed, int iq, int irl, double rhof,
 	double dedxmid;
 	double de;
 	double fedep;
-
+    double elktmp;
+    double eketmp;
+    int lelktmp;
 	int qel = (1+iq)/2;
 
 	/* Calculate the range between the initial energy and the next lower energy 
@@ -6321,7 +6323,7 @@ double computeEloss(int imed, int iq, int irl, double rhof,
 	else {
 		/* Must find first the table index where the step ends using 
 		pre-calculated ranges */
-		int lelktmp = lelke;
+		lelktmp = lelke;
 
 		/* now tuss is the range of the final energy 
 		electron scaled to the default mass density 
@@ -6342,10 +6344,9 @@ double computeEloss(int imed, int iq, int irl, double rhof,
                     imed*MXEKE+lelktmp]) {
 				lelktmp -= 1;
 			}
-			double elktmp = (lelktmp + 2.0 - electron_data.eke0[imed])/
+			elktmp = (lelktmp + 2.0 - electron_data.eke0[imed])/
                 electron_data.eke1[imed];
-			double eketmp = electron_data.e_array[qel*geometry.nmed*MXEKE+
-                imed*MXEKE+lelktmp];
+			eketmp = electron_data.e_array[imed*MXEKE+lelktmp+1];
 
 			tuss = (electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE
                 +lelktmp+1]-tuss)/rhof;
@@ -6490,13 +6491,79 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
 	double v2 = sint2*sphi2;
 	double u2p = w1*u2 + sint1*w2;
 
-    /* direction cosine after scattering */
+    /* Direction cosines after scattering */
     double us = u2p*cphi1 - v2*sphi1;
     double vs = u2p*sphi1 + v2*cphi1;
     double ws = w1*w2 - sint1*u2;
 	
+    /* Calculate delta, b, c */
+    xi *= 2*xi_corr;
 
-    return 0.0;
+    double eta = setRandom();   // randomization of substep transport distances
+    double eta1 = 0.5*(1.0 - eta);
+    double delta = 0.9082483 - (0.1020621 - 0.0263747*gamma)*xi;
+
+    double temp1 = 2.0 + tau;   // auxilarity variables for energy 
+							    // loss corrections
+	double temp = (2.0 + tau*temp1)/((tau + 1.0)*temp1);
+
+	/* Take logarithmic dependence into account as well */
+	temp -= (tau + 1.0)/((tau + 2.0)*(chilog*(1.0 + chia2) - 1.0));
+	temp *= epsilonp;
+	temp1 = 1.0 - temp;
+	delta += 0.40824829*(epsilon*(tau + 1.0)/((tau + 2.0)*(chilog*(1.0 + 
+        chia2) - 1.0)*(chilog*(1.0 + 2.0*chia2) - 2.0))	- 0.25*pow(temp, 2.0));
+	double b = eta*delta;           // substep transport distance
+	double c = eta*(1.0 - delta);   // substep transport distance	
+
+	/* Calculate transport direction cosines */
+	double w1v2 = w1 * v2;
+    double ut = b*sint1*cphi1 + c*(cphi1*u2 - sphi1*w1v2) + eta1*us*temp1;
+    double vt = b*sint1*sphi1 + c*(sphi1*u2 + cphi1*w1v2) + eta1*vs*temp1;
+    double wt = eta1*(1.0 + temp) + b*w1 + c*w2 + eta1*ws*temp1;
+
+	/* Calculate transport distance */
+	double ustep = tustep*sqrt(pow(ut, 2.0) + pow(vt, 2.0) + pow(wt, 2.0));
+
+	/* Rotate into the final direction of motion and transport relative to 
+    original direction of motion */
+    int np = stack.np;
+    double x0 = stack.x[np];
+    double y0 = stack.y[np];
+    double z0 = stack.z[np];
+    double u0 = stack.u[np];
+    double v0 = stack.v[np];
+    double w0 = stack.w[np];    
+	double sint02 = pow(u0, 2.0) + pow(v0, 2.0);
+
+    if (sint02 > 1.0E-20) {
+		double sint0  = sqrt(sint02);
+        double sint0i = 1.0/sint0;
+        double cphi0  = sint0i*u0;
+        double sphi0  = sint0i*v0;
+
+        /* Scattering angles */
+        u2p = w0*us + sint0*ws;
+        ws = w0*ws - sint0*us;
+        us = u2p*cphi0 - vs*sphi0;
+        vs = u2p*sphi0 + vs*cphi0;
+
+        /* Transport angles */
+        u2p = w0*ut + sint0*wt;
+        wt = w0*wt - sint0*ut;
+        ut = u2p*cphi0 - vt*sphi0;
+        vt = u2p*sphi0 + vt*cphi0;
+	}
+	else {
+        wt = w0*wt; ws = w0*ws;
+	}
+
+    /* Transport the particle */
+    *x_final = x0 + tustep*ut;
+    *y_final = y0 + tustep*vt;
+    *z_final = z0 + tustep*wt;
+
+    return ustep;
 }
 
 void mscat(int imed, int qel, int *spin_index, int *find_index, 
