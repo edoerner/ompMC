@@ -381,8 +381,9 @@ void photo(void);
 /* Electron data definition */
 #define XIMAX 0.5
 #define ESTEPE 0.25
-#define EPSEMFP 1.0E-5F // smallest electron mean free path
+#define EPSEMFP 1.0E-5  // smallest electron mean free path
 #define SKIN_DEPTH_FOR_BCA 3
+
 
 struct Electron {
     double *esig0;
@@ -510,7 +511,15 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
 void mscat(int imed, int qel, int *spin_index, int *find_index, 
     double elke, double beta2, double q1,  double lambda, double chia2, 
     double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r);
+double spinRejection(int imed, int qel,	double elke, double beta2, double q1,
+	double cost, int *spin_index, int is_single, struct Spinr *spin_r);
+void sscat(int imed, int qel, double chia2, double elke, double beta2,
+	double *cost, double *sint);
 void rannih(void);
+void brems(void);
+void moller(void);
+void bhabha(void);
+void annih(void);
 
 /******************************************************************************/
 /* Auxiliary functions during simulation */
@@ -1778,7 +1787,7 @@ void ausgab(double edep) {
     int np = stack.np;
     int irl = stack.ir[np];
     double endep = stack.wt[np]*edep;
-    
+        
     /* Deposit particle energy on spot */
     score.endep[irl] += endep;
     
@@ -5490,17 +5499,18 @@ void electron() {
     double edep = 0.0;              // deposited energy by particle
     
     struct Uphi uphi;
-    double eie = stack.e[np];       // energy of incident gamma
+    double eie = stack.e[np];       // energy of incident electron
     int iq = stack.iq[np];         // charge of current particle.
     int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
-    
+    int medold; 
+
     double rnno;
     
     /* First check of electron cut-off energy */
     if(eie <= region.ecut[irl]) {
         
         edep = eie - RM;    // get energy deposition for user
-        
+
         /* Call ausgab and drop energy on spot */
         ausgab(edep);
         
@@ -5525,20 +5535,11 @@ void electron() {
     int lelke;   // index into the energy grid of tabulated funtions
     double sigratio = 0.0;
     double rfict = 0.0; // rejection function for fictitius cross section.
-
-    /* ******************************************************************* */
-    /* For the moment just discard electron and deposit its energy on spot */
-    edep = stack.e[np] - RM;
-    ausgab(edep);
-    stack.np -= 1;
-    return;
-    /* ******************************************************************* */
     
     do {    // start of tstep loop
         
         /* Go through this loop each time we recompute distance to an
          interaction */
-        int do_range = 1;       // in order to try to save evaluation of range
         int compute_tstep = 1;  // mean free path resampled. Calculate
                                 // distance to the interaction in ustep loop
         
@@ -5553,7 +5554,7 @@ void electron() {
         
         double ustep;            // projected transport distance in the
                                 // direction of motion at the start of the step
-
+        
         if(imed != -1) {
             /* Not vacuum. The electron mean free path must be sampled to 
             determine how far is the next interaction */
@@ -5632,7 +5633,6 @@ void electron() {
                                 // interaction
 
 			double range;       // electron range
-            double the_range; 
 
 			double p2;      // electron momentum times c, squared
 			double beta2;   // electron speed in units of c, squared
@@ -5657,11 +5657,12 @@ void electron() {
 									// steps
 			}
 			else {  // non-vacuum
-				
+				/* Update density of medium */
+                rhof = region.rhof[irl];
+
 				/* As the cross-section is interactions per energy loss, no 
                 density scaling is required here */
-
-				if (sig0 <= 0.0f) {
+				if (sig0 <= 0.0) {
 					/* This can happen if the threshold for brems (ap + rm)
 					is greater than ae. Ask for step same as vacuum */
 					tstep = 10.0E8; //  i.e. infinity
@@ -5678,7 +5679,7 @@ void electron() {
 						ekef = eke - total_de;
 
 						if (ekef <= electron_data.e_array[imed*MXEKE+0]) {
-							tstep = 10.0E8f; // i.e. infinity
+							tstep = 10.0E8; // i.e. infinity
 						}
 						else {
 							double elkef = log(ekef);
@@ -5762,17 +5763,14 @@ void electron() {
 				/* Compute the range to E_min(med), where e_min is the 
 				first energy in the table. Limit the electron step to 
 				this range */
-				if (do_range) {
-					ekei = electron_data.e_array[imed*MXEKE+lelke];
-					elkei = ((double)(lelke + 1) - electron_data.eke0[imed])/
+                ekei = electron_data.e_array[imed*MXEKE+lelke];
+                elkei = ((double)(lelke + 1) - electron_data.eke0[imed])/
                         electron_data.eke1[imed];
-					range = computeDrange(imed, iq, lelke, eke, ekei, 
+                range = computeDrange(imed, iq, lelke, eke, ekei, 
                         elke, elkei);
-					the_range = range + 
-            electron_data.range_ep[qel*geometry.nmed*MXEKE+imed*MXEKE+lelke];
-					do_range = 0;   // i.e. false
-				}
-				range = the_range/rhof;
+                range += electron_data.range_ep[qel*geometry.nmed*MXEKE+
+                    imed*MXEKE+lelke];
+				range /= rhof;
 
 				/* The following finds the minimum between tstep, tmxs and 
 				range. The result is stored in tustep, the total 
@@ -5820,7 +5818,7 @@ void electron() {
 				/* The transport logic below is determined by the boolean 
 				variables call_howfar and do_single */
 				int is_chstep = 0;  // i.e. false
-
+                
 				if ((tustep <= tperp) && (tustep > skindepth)) {
 					/* The particle is further a boundary than skindepth, 
 					so perform a normal CH step */
@@ -5840,12 +5838,13 @@ void electron() {
 					/* msdist models multiple elastic scattering and 
 					spatial deflections for the path-length tustep.
 					ustep is the straight-line distance between 
-					initial and final position of the particle */
+					initial and final position of the particle */                    
 					ustep = msdist(imed, iq, region.rhof[irl], de, tustep, eke,
                     	&x_final, &y_final, &z_final,
-                        &u_final, &v_final, &w_final);
+                        &u_final, &v_final, &w_final);                    
 				}
 				else {
+                    
 					/* We are within a skindepth from a boundary, invoke
 					the boundary-crossing algorithm (exact) */					
 					called_msdist = 0;  // remember that msdist has not 
@@ -5855,7 +5854,7 @@ void electron() {
 					We use always exact BCA */
 
 					/* sample the distance to a single scattering event */
-					double rnno = setRandom();
+					rnno = setRandom();
 					if (rnno < 1.0E-30) {
 						rnno = 1.0E-30;
 					}
@@ -5879,7 +5878,6 @@ void electron() {
 					}
 
 					ustep = tustep;
-
 					if (ustep < tperp) {
 						call_howfar = 0;
 					}
@@ -5889,355 +5887,380 @@ void electron() {
 				} // end of skindepth if-else
 			}   // end of non-vacuum if-else 
 			
-			// // Optional ustep restriction in EM field should be here.
-			// // SET-USTEP-EM-FIELD
-			// int irnew = p.ir;	// default new region is old region
-			// idisc = 0;		// default is no discard (this flag is initialized here)
+			int irold = stack.ir[np];   // region before transport
+            int irnew = stack.ir[np];   // default new region is old region
+			int idisc = 0;		        // default is no discard
 			
-			// if (call_howfar == true) {
-			// 	howfar(&p, ngrid,
-			// 		xbounds, ybounds, zbounds,
-			// 		&idisc, &irnew, &ustep);
-			// }			
+			if (call_howfar) {
+				howfar(&idisc, &irnew, &ustep);
+			}			
 			
-			// // Now see if user requested discard through idisc, returned 
-			// // by howfar.
-			// if (idisc > 0) {
-			// 	/*****************************************
-			// 	* User requested electron discard section
-			// 	*****************************************/
-			// 	gstack_stat[gid].y = ECUT;
+			/* Now see if user requested discard through idisc, returned 
+			by howfar */
+			if (idisc > 0) {
+				/* User requested electron discard */
+                if(iq > 0) {
+                    edep = eie + RM;
+                }
+                else {
+                    edep = eie - RM;
+                }
 
-			// 	/********************************
-			// 	* Positron annihilation section
-			// 	********************************/
-			// 	if (iq > 0) {
-			// 		// ED: originally if positron RM is added. I do not know why...
-			// 		edep = eie + RM;
+                /* Call ausgab and drop energy on spot */
+                ausgab(edep);
 
-			// 		// The particle is a positron. Produce annihilation gammas
-			// 		// if edep < eie.
-			// 		if (edep < eie) {
-			// 			// ED: deposit positron kinetic energy inmediatly, although this 
-			// 			// could be done inside annih_at_rest kernel.
-			// 			ausgab(edep, &p, score);
-			// 			gstack_stat[gid].y = RANNIH;
-			// 		}
-			// 	}
-			// 	/**************************************
-			// 	* End of Positron annihilation section
-			// 	**************************************/
-
-			// 	// Save particle phase space data to stack.
-			// 	gstack_ir[pid] = p.ir;	// region number
-			// 	gstack_iq[pid] = p.iq;	// particle charge
-			// 	gstack_r[pid] = p.r;	// position
-			// 	gstack_u[pid] = p.u;	// direction
-			// 	gstack_e[pid] = p.e;	// photon energy
-			// 	gstack_dnear[pid] = p.dnear;
-				
-			// 	return;
-			// 	/**************************************
-			// 	* End of User electron discard section
-			// 	**************************************/
-			// }
-
-			// double vstep;	// transport distance after truncation by howfar
-			// int irold;		// region before transport
+                /* Positron annihilation section */
+                if(iq > 0) {
+                    /* The particle is a positron. Produce annihilation gammas
+                    if edep < eie */
+                    if(edep < eie) {
+                        rannih();
+                        
+                        // Now discard the positron and take normal return to
+                        // follow the annihilation gammas.
+                        return;
+                    }
+                }
+                
+                stack.np -= 1;
+                return;
+			}
+            
+			double vstep;	// transport distance after truncation by howfar
 			
-			// if (ustep == 0.0f || med == -1) {
-			// 	// Do fast step.
-			// 	if (ustep != 0.0f) {
-			// 		// Step in vacuum
-			// 		vstep = ustep;	// vstep is ustep truncated by howfar
-			// 		tvstep = vstep; // tvstep is the total curved path associated with vstep
+			if (ustep == 0.0f || imed == -1) {
+				/* Do fast step */
+				if (ustep != 0.0f) {
+					/* Step in vacuum */
+					vstep = ustep;  // vstep is ustep truncated by howfar
+					tvstep = vstep; // tvstep is the total curved path 
+                                    // associated with vstep
 
-			// 		// Transport the particle
-			// 		p.r += p.u * vstep;
-			// 		irold = p.ir; // save previous region
-			// 	} // end of vacuum step
+					/* Transport the particle */
+                    stack.x[np] += stack.u[np]*vstep;
+                    stack.y[np] += stack.v[np]*vstep;
+                    stack.w[np] += stack.w[np]*vstep;
+                    stack.dnear[np] -= vstep;
+				}   // end of vacuum step
 
-			// 	// Electron region change.
-			// 	p.ir = irnew;
-			// 	med = g_med[p.ir];
+				/* Electron region change */
+                if(irnew != irold) {
+                    stack.ir[np] = irnew;
+                    irl = irnew;
+				    imed = region.med[irl];
+                }			
 
-			// 	if (eie <= g_ecut[p.ir]) {
-			// 		/****************************************
-			// 		* Electron cutoff energy discard section
-			// 		****************************************/
-			// 		gstack_stat[gid].y = ECUT;
+                /* First check of electron cut-off energy */
+                if(eie <= region.ecut[irl]) {
+                    
+                    edep = eie - RM;    // get energy deposition for user
+                    
+                    /* Call ausgab and drop energy on spot */
+                    ausgab(edep);
+                    
+                    /* Positron annihilation section */
+                    if(iq > 0) {
+                        /* The particle is a positron. Produce annihilation 
+                        gammas if edep < eie */
+                        if(edep < eie) {
+                            rannih();
+                            
+                            /* Now discard the positron and take normal return
+                            to follow the annihilation gammas */
+                            return;
+                        }
+                    }
+                    
+                    stack.np -= 1;
+                    return;
+                }	
 
-			// 		/********************************
-			// 		* Positron annihilation section
-			// 		********************************/
-			// 		if (iq > 0) {
-			// 			edep = eie - RM;
+				break;  // exit ustep loop. Go try another big step in 
+                        // (possibly) new medium
+			} 
+            vstep = ustep;
 
-			// 			// The particle is a positron. Produce annihilation gammas
-			// 			// if edep < eie.
-			// 			if (edep < eie) {
-			// 				// ED: deposit positron kinetic energy inmediatly, although this 
-			// 				// could be done inside annih_at_rest kernel.
-			// 				ausgab(edep, &p, score);
-			// 				gstack_stat[gid].y = RANNIH;
-			// 			}
-			// 		}
-			// 		/**************************************
-			// 		* End of Positron annihilation section
-			// 		**************************************/
+			if (call_howfar) {
+				/* We are in single scattering mode */
+				tvstep = vstep;
+				if (tvstep != tustep) {
+					/* Boundary was crossed. Shut off single scattering */
+					do_single = 0; // i.e. false
+				}
 
-			// 		// Save particle phase space data to stack.
-			// 		gstack_ir[pid] = p.ir;	// region number
-			// 		gstack_iq[pid] = p.iq;	// particle charge
-			// 		gstack_r[pid] = p.r;	// position
-			// 		gstack_u[pid] = p.u;	// direction
-			// 		gstack_e[pid] = p.e;	// photon energy
-			// 		gstack_dnear[pid] = p.dnear;
-				
-			// 		return;
-			// 		/***********************************************
-			// 		* End of Electron cutoff energy discard section
-			// 		***********************************************/
-			// 	}
+				/* Fourth order technique for dedx. Must be done for a 
+				single scattering step */
+				de = computeEloss(imed, iq, irl, region.rhof[irl], 
+                    tvstep,	range, eke,	elke, lelke);
+			}
+			else {
+				/* call_howfar = false. Step has not been reduced due to 
+				boundaries */
+				tvstep = tustep;
+				if (called_msdist == 0) {
+					/* Second order technique for dedx. Already done in a 
+					normal CH step with call to msdist */
+					de = computeEloss(imed,	iq, irl, region.rhof[irl],
+						tvstep,	range, eke, elke, lelke);
+				}
+			}   // end of call_howfar if-else sentence.
+            
+			edep = de;          // energy deposition variable for user
+			ekef = eke - de;    // final kinetic energy
+            
+			/* Now do multiple scattering */
+			double sinthe; double costhe; // deflection angle
+			if (called_msdist == 0) { // everything done if called_msdist = true
+				if (do_single) {    // Single scattering
+                    /* kinetic energy used to sample MS angle 
+                    (normally midpoint) */
+					double ekems = fmax(ekef, region.ecut[irl] - RM);
+					
+                    p2 = ekems*(ekems + 2.0*RM);
+					beta2 = p2/(p2 + pow(RM, 2.0));
+					
+                    /* Multiple scattering screening angle */
+                    double chia2 = electron_data.xcc[imed]/
+                        (4.0*electron_data.blcc[imed]*p2);
 
-			// 	break; // exit ustep loop. Go try another big step in (possibly) new medium
-			// } 
+					/* We always consider spin effects */
+					double elkems = log(ekems);
+					int lelkems = pwlfInterval(imed, elkems, 
+                        electron_data.eke1, electron_data.eke0) - 1;
 
-			// vstep = ustep;
+					if (iq < 0) {
+						etap = pwlfEval(MXEKE*imed+lelkems, elkems, 
+                            electron_data.etae_ms1, electron_data.etae_ms0);
+					}
+					else {
+						etap = pwlfEval(MXEKE*imed+lelkems, elkems, 
+                            electron_data.etap_ms1, electron_data.etae_ms0);
+					}
+					chia2 *= etap;
 
-			// if (call_howfar == true) {
+					sscat(imed, qel, chia2,	elkems,	beta2, &costhe,	&sinthe);
 
-			// 	// We are in single scattering mode.
-			// 	tvstep = vstep;
-			// 	if (tvstep != tustep) {
-			// 		// Boundary was crossed. Shut off single scattering.
-			// 		do_single = false;
-			// 	}
+				}
+				else {
+					// No deflection in single scattering mode.
+					sinthe = 0.0f;
+					costhe = 1.0f;
+				}
+			} // end of called_msdist if sentence
 
-			// 	// Fourth order technique for dedx. Must be done for a 
-			// 	// single scattering step.
-			// 	de = compute_eloss(medium_data,
-			// 		elec_data,
-			// 		p.ir,
-			// 		p.iq,
-			// 		med,
-			// 		g_rhof[p.ir],
-			// 		tvstep,
-			// 		range,
-			// 		eke,
-			// 		elke,
-			// 		lelke);
-			// }
-			// else {
-			// 	// call_howfar = false. Step has not been reduced due to 
-			// 	// boundaries.
-			// 	tvstep = tustep;
-			// 	if (called_msdist == false) {
-			// 		// Second order technique for dedx. Already done in a 
-			// 		// normal CH step with call to msdist.
-			// 		de = compute_eloss(medium_data,
-			// 			elec_data,
-			// 			p.ir,
-			// 			p.iq,
-			// 			med,
-			// 			g_rhof[p.ir],
-			// 			tvstep,
-			// 			range,
-			// 			eke,
-			// 			elke,
-			// 			lelke);
-			// 	}
-			// } // end of call_howfar if-else sentence.
+			/* We now know distance and amount of energy loss for this 
+			step, and the scattering angle. Now is time to do the 
+			transport */
 
-			// edep = de;			// energy deposition variable for user.
-			// ekef = eke - de;	// final kinetic energy
+			if (called_msdist == 0) {
+				/* Calculate deflection and scattering. This has not been done 
+                in msdist */
+				x_final = stack.x[np] + stack.u[np]*vstep;
+                y_final = stack.y[np] + stack.v[np]*vstep;
+                z_final = stack.z[np] + stack.w[np]*vstep;
 
-			// // Now do multiple scattering.
-			// double sinthe, costhe; // sin() and cos() of deflection angle.
-			// if (called_msdist == false) { // everything done if called_msdist = true
-			// 	if (do_single) {
-			// 		// Single scattering
-			// 		double ekems = fmax(ekef, g_ecut[p.ir] - RM); // kinetic energy used to sample MS angle (normally midpoint)
-			// 		p2 = ekems * (ekems + 2.0f*RM);
-			// 		beta2 = p2 / (p2 + RM * RM);
-			// 		double chia2 = elec_data->xcc / (4.0f*elec_data->blcc*p2); // Multiple scattering screening angle
+				if (do_single) {
+					/* Apply the deflection, save call to uphi if no 
+					deflection in a single scattering mode */
+					uphi21(&uphi, costhe, sinthe);
+					u_final = stack.u[np];
+                    v_final = stack.v[np];
+                    w_final = stack.w[np];
+				}
+				else {
+					u_final = stack.u[np];
+                    v_final = stack.v[np];
+                    w_final = stack.w[np];
+				}
+			}
 
-			// 		// We always consider spin effects.
-			// 		double elkems = log(ekems);
-			// 		int lelkems = pwlf_interval(elkems, elec_data->eke) - 1;
+			/* The electron step is about to occur, score the energy 
+            deposited */
+            ausgab(edep);
 
-			// 		if (iq < 0) {
-			// 			etap = pwlf_eval(lelkems, elkems, elec_data->etae_ms);
-			// 		}
-			// 		else {
-			// 			etap = pwlf_eval(lelkems, elkems, elec_data->etap_ms);
-			// 		}
-			// 		chia2 *= etap;
+			/* Transport the particle */
+			stack.x[np] = x_final;
+            stack.y[np] = y_final;
+            stack.z[np] = z_final;
+			stack.u[np] = u_final;
+            stack.v[np] = v_final;
+            stack.w[np] = w_final;
+			stack.dnear[np] -= vstep;
+			irold = stack.ir[np];		// save the previous region
 
-			// 		sscat(elec_data,
-			// 			sp_data,
-			// 			&rng,
-			// 			chia2,
-			// 			elkems,
-			// 			beta2,
-			// 			qel,
-			// 			med,
-			// 			&costhe,
-			// 			&sinthe);
+			/* Now done with multiple scattering, update energy and see if 
+			below cut below substracts only energy deposited */
+			eie -= edep;
+			stack.e[np] = eie;
 
-			// 	}
-			// 	else {
-			// 		// No deflection in single scattering mode.
-			// 		sinthe = 0.0f;
-			// 		costhe = 1.0f;
-			// 	}
-			// } // end of called_msdist if sentence
+            if(irnew == irl && eie <= region.ecut[irl]) {
+                    
+                    edep = eie - RM;    // get energy deposition for user
+                    
+                    /* Call ausgab and drop energy on spot */
+                    ausgab(edep);
+                    
+                    /* Positron annihilation section */
+                    if(iq > 0) {
+                        /* The particle is a positron. Produce annihilation gammas
+                        if edep < eie */
+                        if(edep < eie) {
+                            rannih();
+                            
+                            // Now discard the positron and take normal return to
+                            // follow the annihilation gammas.
+                            return;
+                        }
+                    }
+                    
+                    stack.np -= 1;
+                    return;
+                }
 
-			// // We now know distance and amount of energy loss for this 
-			// // step, and the scattering angle. Now is time to do the 
-			// // transport.
-			// the_range -= tvstep * rhof;
+			medold = imed;  // save previous region
+			if (imed != -1) {
+				eke = eie - RM; // update kinetic energy
+				elke = log(eke);
 
-			// if (called_msdist == false) {
-			// 	// Calculate deflection and scattering. This has not been done in msdist.
-			// 	r_final = p.r + p.u * vstep;
+				/* Get updated interval */
+				lelke = pwlfInterval(imed, elke, 
+                        electron_data.eke1, electron_data.eke0) - 1;
+			}
 
-			// 	if (do_single) {
-			// 		// Apply the deflection, save call to uphi if no 
-			// 		// deflection in a single scattering mode
-			// 		uphi21(&uphi, &p, &rng, costhe, sinthe);
-			// 		u_final = p.u;
-			// 	}
-			// 	else {
-			// 		u_final = p.u;
-			// 	}
-			// }
-
-			// // The electron step is about to occur, score the energy deposited.			
-			// ausgab(edep, &p, score);
-
-			// // Transport the particle.
-			// p.r = r_final;
-			// p.u = u_final;
-			// p.dnear -= vstep;
-			// irold = p.ir;		// save the previous region
-
-			// // Now done with multiple scattering, update energy and see if 
-			// // below cut below substracts only energy deposited.
-			// eie -= edep;
-			// p.e = eie;
+			/* Electron region change */
+            if(irnew != irold) {
+                stack.ir[np] = irnew;
+                irl = irnew;
+                imed = region.med[irl];
+            }
 			
-			// if (irnew == p.ir && eie <= g_ecut[p.ir]) {
-			// 	/****************************************
-			// 	* Electron cutoff energy discard section
-			// 	****************************************/
-			// 	gstack_stat[gid].y = ECUT;
-				
-			// 	/********************************
-			// 	* Positron annihilation section
-			// 	********************************/
-			// 	if (iq > 0) {
-			// 		edep = eie - RM;
+            /* Check electron cut-off energy */
+			if(eie <= region.ecut[irl]) {
+        
+                edep = eie - RM;    // get energy deposition for user
+                
+                /* Call ausgab and drop energy on spot */
+                ausgab(edep);
+                
+                /* Positron annihilation section */
+                if(iq > 0) {
+                    /* The particle is a positron. Produce annihilation gammas
+                    if edep < eie */
+                    if(edep < eie) {
+                        rannih();
+                        
+                        // Now discard the positron and take normal return to
+                        // follow the annihilation gammas.
+                        return;
+                    }
+                }
+                
+                stack.np -= 1;
+                return;
+            }
 
-			// 		// The particle is a positron. Produce annihilation gammas
-			// 		// if edep < eie.
-			// 		if (edep < eie) {
-			// 			// ED: deposit positron kinetic energy inmediatly, although this 
-			// 			// could be done inside annih_at_rest kernel.
-			// 			ausgab(edep, &p, score);
-			// 			gstack_stat[gid].y = RANNIH;
-			// 		}
-			// 	}
-			// 	/**************************************
-			// 	* End of Positron annihilation section
-			// 	**************************************/
+			if (imed != medold) {
+				break;  // exit to tstep loop
+			}
 
-			// 	// Save particle phase space data to stack.
-			// 	gstack_ir[pid] = p.ir;	// region number
-			// 	gstack_iq[pid] = p.iq;	// particle charge
-			// 	gstack_r[pid] = p.r;	// position
-			// 	gstack_u[pid] = p.u;	// direction
-			// 	gstack_e[pid] = p.e;	// photon energy
-			// 	gstack_dnear[pid] = p.dnear;
-				
-			// 	return;
-			// 	/***********************************************
-			// 	* End of Electron cutoff energy discard section
-			// 	***********************************************/
-			// }
-
-			// medold = med;	// save previous region
-			// if (med != -1) {
-			// 	eke = eie - RM; // update kinetic energy
-			// 	elke = log(eke);
-
-			// 	// Get updated interval.
-			// 	lelke = pwlf_interval(elke, elec_data->eke)- 1;
-			// }
-
-			// if (irnew != irold) {
-			// 	// Electron region change.
-			// 	p.ir = irnew;
-			// 	med = g_med[p.ir];
-			// 	rhof = g_rhof[p.ir];
-			// }
-			
-			// if (eie <= g_ecut[p.ir]) {
-			// 	/****************************************
-			// 	* Electron cutoff energy discard section
-			// 	****************************************/
-			// 	gstack_stat[gid].y = ECUT;
-
-			// 	/********************************
-			// 	* Positron annihilation section
-			// 	********************************/
-			// 	if (iq > 0) {
-			// 		edep = eie - RM;
-
-			// 		// The particle is a positron. Produce annihilation gammas
-			// 		// if edep < eie.
-			// 		if (edep < eie) {
-			// 			// ED: deposit positron kinetic energy inmediatly, although this 
-			// 			// could be done inside annih_at_rest kernel.
-			// 			ausgab(edep, &p, score);
-			// 			gstack_stat[gid].y = RANNIH;
-			// 		}
-			// 	}
-			// 	/**************************************
-			// 	* End of Positron annihilation section
-			// 	**************************************/
-
-			// 	// Save particle phase space data to stack.
-			// 	gstack_ir[pid] = p.ir;	// region number
-			// 	gstack_iq[pid] = p.iq;	// particle charge
-			// 	gstack_r[pid] = p.r;	// position
-			// 	gstack_u[pid] = p.u;	// direction
-			// 	gstack_e[pid] = p.e;	// photon energy
-			// 	gstack_dnear[pid] = p.dnear;
-
-			// 	return;
-			// 	/***********************************************
-			// 	* End of Electron cutoff energy discard section
-			// 	***********************************************/
-			// }
-
-			// if (med != medold) {
-			// 	break; // exit to tstep loop
-			// }
-
-			// // Update demfp. As energy loss is used as the 'path-length' 
-			// // variable, it just substracts the energy loss for the step.
-			// demfp -= de * sig0; // save_de should be used instead if 
-			// 					// de-fluctuation is implemented.
-			// total_de -= de;
-			// total_tstep -= tvstep * g_rhof[p.ir];
-			// if (total_tstep < 1.0E-9f) {
-			// 	demfp = 0.0f;
-			// }
+			/* Update demfp. As energy loss is used as the 'path-length' 
+			variable, it just substracts the energy loss for the step */
+			demfp -= de*sig0; 
+			total_de -= de;
+			total_tstep -= tvstep*rhof;
+			if (total_tstep < 1.0E-9) {
+				demfp = 0.0;
+			}
 
         } while (demfp >= EPSEMFP); // end of ustep loop
+       
+        /* If following is true, it means that particle has carried out a fast 
+    	step in vacuum or has changed medium. In that case, go to beginning of 
+		tstep loop */
+		
+		if ((imed != medold) || (ustep == 0.0) || (imed == -1)) {
+			continue; // start at beginning of tstep loop
+		}
+
+		/* Compute final sigma to see if resample is needed. This will take 
+		the energy variation of the sigma into account using the 
+		fictitious sigma method */
+		if (iq < 0) {
+			sigf = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.esig1, electron_data.esig0);
+			dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.ededx1, electron_data.ededx0);
+			sigf /= dedx0;
+		}
+		else {
+			sigf = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.psig1, electron_data.psig0);
+			dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.pdedx1, electron_data.pdedx0);
+			sigf /= dedx0;
+		}
+		
+		sigratio = sigf/sig0;
+		rfict = setRandom();
 
     } while (rfict >= sigratio);    // end of tstep loop
+        
+    /* Now sample electron interaction */
+    if (iq < 0) {
+		/* electron. Check branching ratio */
+		double ebr1 = pwlfEval(imed*MXEKE+lelke, elke,  // e- branching ratio 
+            electron_data.ebr11, electron_data.ebr10);  // into brem
+		rnno = setRandom();
+		if (rnno <= ebr1) {
+			/* It was Bremsstrahlung */
+			brems();            
+		}
+		else {
+			/* It was Moller, but first check the kinematics. However, if 
+			EII is on we should still permit an interaction, even if 
+			E < Moller threashold as EII interactions go down to the 
+			ionization threshold which may be less than thmoll */
+			if (stack.e[np] <= pegs_data.thmoll[imed]) {
+				/* Not enough energy for Moller, so force it to be a 
+				Bremsstrahlung, provided ok kinematically */
+
+				if (ebr1 <= 0) {    // Brems not allowed either.
+                    /* Return to shower to re-enter electron() */
+					return;
+				}
+				else {
+					brems();
+				}
+			}
+			else {
+				moller();
+			}
+		}
+	}
+	else {
+		/* Positron interaction. pbr1 = brems/(brems + bhabha + annih) */
+		double pbr1 = pwlfEval(imed*MXEKE+lelke, elke,  // e+ branching ratio
+            electron_data.pbr11, electron_data.pbr10);	// into brem.
+		rnno = setRandom();
+		if (rnno < pbr1) {
+			/* It was bremsstrahlung */
+			brems();
+		}
+		else {
+			/* Decide between bhabha and annihilation. 
+			pbr2 = (brems + bhabha)/(brems + bhabha + annih) */
+			double pbr2 = pwlfEval(imed*MXEKE+lelke, elke,  //e+ branching ratio
+                electron_data.pbr21, electron_data.pbr20);  // into brem or Bha.	
+			if (rnno < pbr2) {
+				/* It is bhabha */
+				bhabha();
+			}
+			else {
+				/* It is in-flight annihilation */
+                annih();
+			}   // end pbr2 if-else sentence		
+		}
+	}
     
     return;
 }
@@ -6376,7 +6399,7 @@ double computeEloss(int imed, int iq, int irl, double rhof,
 double msdist(int imed, int iq, double rhof, double de, double tustep, 
     double eke, double *x_final, double *y_final, double *z_final, 
     double *u_final, double *v_final, double *w_final) {
-
+    
     int qel = (1 + iq)/2;   // = 0 for electrons, = 1 for positrons
     
     /* The following auxiliary variables must persist among calls to mscat and 
@@ -6558,19 +6581,298 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
         wt = w0*wt; ws = w0*ws;
 	}
 
-    /* Transport the particle */
+    /* Transport the particle. Transfer new position and direction */
     *x_final = x0 + tustep*ut;
     *y_final = y0 + tustep*vt;
     *z_final = z0 + tustep*wt;
-
+    *u_final = us;
+    *v_final = vs;
+    *w_final = ws;
+    
     return ustep;
 }
 
 void mscat(int imed, int qel, int *spin_index, int *find_index, 
     double elke, double beta2, double q1,  double lambda, double chia2, 
     double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r) {
+    /* Function to sample multiple electron scattering angles from the exact 
+	distribution resulting from elastic scattering, described by the 
+	screened Rutherford cross times Mott correction (i.e. spin_effects=true) */
+	double xi, rejf, rnno;
+	double explambda = exp(-lambda);
+
+    if (lambda <= 13.8) {
+		/* Test only for lambda = 13.8 implies a 1E-6 error, i.e. large 
+		lambda cases that contribute to the forward no-scattering amplitude */
+		double sprob = setRandom();
+		if (sprob < explambda) {
+			/* It was a no scattering event */
+			*cost = 1.0;
+			*sint = 0.0;
+			return;
+		}
+
+		double wsum = (1.0 + lambda)*explambda;
+		if (sprob <  wsum) {
+			do {
+				xi = setRandom();
+				xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+				*cost = 1.0 - xi;
+
+				rejf = spinRejection(imed, qel,	elke, beta2, q1,
+					*cost, spin_index, 0, spin_r);
+				rnno = setRandom();
+			} while (rnno > rejf);
+
+			*sint = sqrt(xi*(2.0 - xi));
+			return;
+		}
+
+		if (lambda <= 1) {
+			int icount = 0;
+			double wprob = explambda;
+			double sinz, cosz;
+			double phi;
+			wsum = explambda;
+			*cost = 1.0;
+			*sint = 0.0;
+
+			do {
+				icount += 1;
+				if (icount > 20) {
+					break;
+				}   // to avoid underflow if sprob very close to 1
+
+				wprob = wprob * lambda / icount;
+				wsum = wsum + wprob;
+				do {
+					/* the following applies to the case where spin effects are 
+					enabled */
+					xi = setRandom();
+					xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+					cosz = 1.0 - xi;
+
+					rejf = spinRejection(imed,	qel, elke, beta2, q1,
+						cosz, spin_index, 0, spin_r);
+					rnno = setRandom();
+				} while (rnno > rejf);
+
+				sinz = xi * (2.0 - xi);
+				if (sinz > 1.0E-20) {
+					sinz = sqrt(sinz);
+					xi = setRandom();
+					phi = xi*6.2831853;
+					*cost = (*cost)*cosz - *sint*sinz*cos(phi);
+					*sint = sqrt(fmax(0.0, (double)((1.0  - 
+                        (*cost))*(1.0 + (*cost)))));
+				}
+			} while (wsum <= sprob);
+			return;
+		}
+	}
+
+	/* It was a multiple scattering event. Sample the angle from the q^(2+) 
+	surface */
+	if (lambda <= LAMBMAX_MS) {
+		double ai, aj;
+		double llmbda = log(lambda);
+
+		if (*find_index) {
+			/* First find lambda bin */
+			ai = llmbda*mscat_data.dllambi;
+			m_scat->i = (int)ai;
+			ai -= (double)m_scat->i;
+			xi = setRandom();
+
+			if (xi < ai) {
+				m_scat->i += 1;
+			}
+
+			if (q1 < QMIN_MS) {
+				m_scat->j = 0;
+			}
+			else if (q1 < QMAX_MS) {
+				aj = q1*mscat_data.dqmsi;
+				m_scat->j = (int)aj;
+				aj -= (double)m_scat->j;
+				xi = setRandom();
+				if (xi < aj) {
+					m_scat->j += 1;
+				}
+			}
+			else {
+				m_scat->j = MXQ_MS;
+			}
+
+			/* Calculate omega2 */
+			if (llmbda < 2.2299) {
+				m_scat->omega2 = chia2*(lambda + 4.0)*(1.347006	+ 
+                    llmbda*(0.209364 - llmbda*(0.45525 - llmbda*(0.50142 - 
+                    0.081234*llmbda))));
+			}
+			else {
+				m_scat->omega2 = chia2*(lambda + 4.0)*(-2.77164	+ 
+                    llmbda*(2.94874 - llmbda*(0.1535754	- llmbda*0.00552888)));
+
+			}
+			*find_index = 0;    // i.e. false
+		}
+
+		/* If this is a re-iteration with the same lambda, then omega2, i, k 
+		should be defined in the previous section */
+		int counter2 = 0;
+		int k;
+		double a; double ak; double u; double du; double x1;
+		do {
+			counter2++;
+			xi = setRandom();
+			ak = xi*MXU_MS;
+			k = ak;
+			ak -= k;
+
+			if (ak > mscat_data.wms_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
+                (MXL_MS+1)*(MXQ_MS+1)*k]) {
+				k = mscat_data.ims_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
+                    (MXL_MS+1)*(MXQ_MS+1)*k];
+			}
+
+			a = mscat_data.fms_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
+                (MXL_MS+1)*(MXQ_MS+1)*k];
+			u = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
+                (MXL_MS+1)*(MXQ_MS+1)*k];
+			du = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
+                (MXL_MS+1)*(MXQ_MS+1)*(k+1)] - u;
+			xi = setRandom();
+
+			if (fabs(a) < 0.2) {
+				x1 = 0.5*(1.0 - xi)*a;
+				u += xi*du*(1.0 + x1*(1.0 - xi*a));
+			}
+			else {
+				u -= du/a*(1.0 - sqrt(1.0 + xi*a*(2.0 + a)));
+			}
+
+			xi = m_scat->omega2*u/(1.0 + 0.5*m_scat->omega2 - u);
+			if (xi > 1.99999) {
+				xi = 1.99999;
+			}
+
+			/* Some machines have trouble when xi is very close to 2 
+			in subsequent calculations */
+			*cost = 1.0 - xi;
+
+			rejf = spinRejection(imed, qel,	elke, beta2, q1,
+				*cost, spin_index, 0, spin_r);
+
+			rnno = setRandom();
+		} while (rnno > rejf);
+
+		*sint = sqrt(xi*(2.0 - xi));
+	}
 
     return;    
+}
+
+double spinRejection(int imed, int qel,	double elke, double beta2, double q1,
+	double cost, int *spin_index, int is_single, struct Spinr *spin_r) {
+	
+    /* This function determines the rejection function due to spin effects */
+	int k;
+	double ai; double aj; double ak; double qq1; double xi;
+	double rnno;
+
+	if (*spin_index) {
+		/* Determine the energy and q1 index */
+		*spin_index = 0;    // i.e. false
+
+		if (beta2 >= spin_data.b2spin_min) {
+			ai = (beta2 - spin_data.b2spin_min)*spin_data.dbeta2i;
+			spin_r->i = (int)ai;
+			ai -= (double)spin_r->i;
+			spin_r->i += MXE_SPIN + 1;
+		}
+		else if (elke > spin_data.espml) {
+			ai = (elke - spin_data.espml)*spin_data.dleneri;
+			spin_r->i = (int)ai;
+			ai -= spin_r->i;
+		}
+		else {
+			spin_r->i = 0;
+			ai = -1.0f;
+		}
+
+		rnno = setRandom();
+		if (rnno < ai) {
+			spin_r->i += 1;
+		}
+
+		if (is_single) {
+			spin_r->j = 0;
+		}
+		else {
+			qq1 = 2.0*q1;
+			qq1 = qq1/(1.0 + qq1);
+			aj = qq1*spin_data.dqq1i;
+
+			spin_r->j = (int)aj;
+			if (spin_r->j >= MXQ_SPIN) {
+				spin_r->j = MXQ_SPIN;
+			}
+			else {
+				aj -= (int)spin_r->j;
+				rnno = setRandom();
+				if (rnno < aj) {
+					spin_r->j += 1;
+				}
+			}
+		}
+	}
+
+	xi = sqrt(0.5*(1.0 - cost));
+	ak = xi*MXU_SPIN;
+	k = (int)ak;
+	ak -= (double)k;
+
+	double spin_rej = spin_data.spin_rej[qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*
+        (MXU_SPIN+1) + (spin_r->i)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        (spin_r->j)*(MXU_SPIN+1) + k];
+	double spin_rej2 =	spin_data.spin_rej[qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*
+        (MXU_SPIN+1) + (spin_r->i)*(MXQ_SPIN+1)*(MXU_SPIN+1)+ 
+        (spin_r->j)*(MXU_SPIN+1) + (k+1)];
+	double spin_reject = (1.0 - ak)*(spin_rej) + ak*spin_rej2;
+
+	return spin_reject;
+}
+
+void sscat(int imed, int qel, double chia2, double elke, double beta2,
+	double *cost, double *sint) {
+	/* single elastic scattering */
+
+	/* The following auxiliary variables must persist among calls to 
+	spin_rejection */
+	int spin_index = 1; // i.e. true
+	struct Spinr spin_r;
+
+	int qzero;
+	double xi; double rejf; double rnno;
+
+	do {
+		xi = setRandom();
+		xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+		*cost = 1.0 - xi;
+
+		/* We always consider spin effects turned on */
+		qzero = 0;
+
+		rejf = spinRejection(imed, qel, elke, beta2, qzero,	
+            *cost,	&spin_index, 1,	&spin_r);
+
+		rnno = setRandom();
+	} while (rnno > rejf);
+
+	*sint = sqrt(xi*(2.0 - xi));
+
+	return;
 }
 
 void rannih() {
@@ -6613,9 +6915,443 @@ void rannih() {
     return;
 }
 
+void brems() {
+    /* This function samples Bremmsstrahlung energy using Coulomb corrected 
+	Bethe-Heitler above 50 MeV and Bethe-Heitler below 50 MeV. This option 
+	corresponds to ibr_nist = 0 in the EGSnrc platform */
+
+	int np = stack.np;	
+	int irl = stack.ir[np];
+	int imed = region.med[irl];
+	
+    double eie = stack.e[np];   // energy of incident electron
+	double phi1; double phi2;   // screening function
+	
+	/* Decide which distribution to use:
+	Coulomb corrected Bethe-Heitler above 50 MeV
+	Bethe-Heitler elsewhere */
+	int l;
+	if(eie < 50.0) { 
+		l = 1; // BH
+	}
+	else { 
+		l = 3; // BH Coulomb corrected
+	}
+	int l1 = l + 1;
+
+	double ekin = eie - RM; // kinetic incident energy
+	double brmin = pegs_data.ap[imed]/ekin;
+	double waux = -log(brmin);
+
+	double a; double b; double c;   // direction cosines of incident electron.
+	double sinpsi; double sindel; double cosdel;    // all used for rotations.
+	double ztarg;   // (Zeff^1/3/111)^2, used for 2BS angle sampling
+	double tteie;   // total energy in units of rest energy
+	double y2maxi;
+	double z2maxi;
+
+	// We will sample the photon emmision angle from KM-2BS (ibrdst=1) or 
+    // from the leading term (ibrdst=0).
+    a = stack.u[np];
+    b = stack.v[np];
+    c = stack.w[np];
+
+    sinpsi = pow(a, 2.0) + pow(b, 2.0);
+    if(sinpsi > 1.0E-20) {
+        sinpsi = sqrt(sinpsi);
+        sindel = b/sinpsi;
+        cosdel = a/sinpsi;
+    }
+
+    ztarg = pair_data.zbrang[imed];
+    tteie = eie/RM;
+    /* Electron velocity in speed of light units */
+    double beta = sqrt((tteie - 1.0)*(tteie + 1.0))/tteie;
+
+    double y2max = 2.0*beta*(1.0 + beta)*tteie*tteie;   // maximum possible 
+                                                        // scaled angle
+    y2maxi = 1.0/y2max;
+    double z2max = y2max + 1.0;
+    z2maxi = sqrt(z2max);
+
+	/* We do not implement Bremsstrahlung splitting */
+
+	double aux;
+	double br;                      // energy fraction of secondary photon
+	double delta;                   // scaled momentum transfer
+	double rnno06; double rnno07;   // random numbers
+	double rejf;                    // screening rejection function
+	double ese;                     // total energy of scattered electron
+	double esg;                     // energy of emitted photon
+
+	do { 
+		rnno06 = setRandom();
+		rnno07 = setRandom();
+		br = brmin*exp(rnno06*waux);
+		esg = ekin*br; 
+		ese = eie - esg;
+		delta = esg/eie/ese*pair_data.delcm[imed]; 
+		aux = ese/eie;
+
+		if( delta < 1.0 ) {
+			phi1 = pair_data.dl1[imed*8+l-1] + delta*(pair_data.dl2[imed*8+l-1]+ 
+                delta*pair_data.dl3[imed*8+l-1]);
+			phi2 = pair_data.dl1[imed*8+l1-1]+delta*(pair_data.dl2[imed*8+l1-1]+
+					delta*pair_data.dl3[imed*8+l1-1]);
+		}
+		else {
+			phi1 = pair_data.dl4[imed*8+l-1] + pair_data.dl5[imed*8+l-1]*
+                log(delta + pair_data.dl6[imed*8+l-1]);
+			phi2 = phi1;
+		}
+		rejf = (1.0 + pow(aux, 2.0))*phi1 - 2.0*aux*phi2/3.0;		
+	} while(rnno07 >= rejf);
+
+	/* Setup the new photon */
+	np += 1;
+	stack.e[np] = esg;
+	stack.iq[np] = 0;
+	transferProperties(np, np-1);
+
+	/* Now we need to decide the direction of the photon */
+    double y2tst;                   // scaled angle, costhe = 1 - 2*y2tst/y2max
+    double ttese = ese/RM;          // new electron energy in units of RM
+    double esedei = ttese/tteie;    // new total energy over old total energy
+                                    // used for angle rejection function calls
+    double rejmax;
+    double rjarg1 = 1.0 + esedei*esedei; 
+    double rjarg2 = rjarg1 + 2.0*esedei;
+    double rjarg3; 
+
+    double rtest = 1.0; double rejtst= 0.0;
+    aux = 2.0*ese*tteie/esg;
+    aux = pow(aux, 2.0);
+    double aux1 = aux*ztarg;
+
+    if(aux1 > 10.0) {
+        rjarg3 = -log(pair_data.zbrang[imed]) + (1.0 - aux1)/pow(aux1, 2.0);
+    }
+    else {
+        rjarg3 = log(aux/(1.0 + aux1));
+    }
+    rejmax = rjarg1*rjarg3 - rjarg2;
+
+    while(rtest >= rejtst) {
+        y2tst = setRandom();
+        rtest = setRandom();
+        double aux3 = z2maxi/(y2tst + (1.0 - y2tst)*z2maxi);
+        rtest = rtest*aux3*rejmax;
+        y2tst = pow(aux3, 2.0) - 1.0;
+        double y2tst1 = esedei*y2tst/pow(aux3, 4.0);
+        double aux4 = 16.0*y2tst1 - rjarg2;
+        double aux5 = rjarg1 - 4.0*y2tst1;
+
+        if (rtest < aux4 + aux5*rjarg3){
+            break;
+        }
+
+        double aux2 = log(aux/(1.0 + aux1/pow(aux3, 4.0)));
+        rejtst = aux4 + aux5*aux2;
+    }
+
+	double costhe = 1.0 - 2.0*y2tst*y2maxi;
+    double sinthe = sqrt(fmax(0.0 ,(1.0 - pow(costhe, 2.0))));
+
+    double phi = setRandom()*M_PI;
+    double cphi = cos(phi);
+    double sphi = sin(phi);
+
+    if( sinpsi >= 1.0E-10 ) {
+        double us = sinthe*cphi;
+        double vs = sinthe*sphi;
+
+        stack.u[np] = c*cosdel*us - sindel*vs + a*costhe;
+        stack.v[np] = c*sindel*us + cosdel*vs + b*costhe;
+        stack.w[np] = c*costhe - sinpsi*us;
+    }
+    else {
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi;
+        stack.w[np] = c*costhe;
+    }
+
+	/* Set energy of the electron */
+	stack.e[np-1] = ese;
+	
+	/* Update stack index */
+	stack.np = np;
+
+    return;
+}
+
+void moller() {
+
+    /* In this function we sample moller scattering, for this process to happen 
+	we need a minimum energy, if we don't have that energy the electron
+	is in a continual energy loss, the theory applied uses conservation of 
+	4-momentum and the moller formula for the cross section (James Bjorken, 
+	Sidney Drell: Relativistische Quantenmechanik (Relativistic quantum 
+	mechanics E. Akademischer Verlag Spektrum, Heidelberg 1998) */
+
+    int np = stack.np;
+    int irl = stack.ir[np];
+    int imed = region.med[irl];
+    double eie = stack.e[np];   // total energy of incident electron
+	double ekin = eie - RM;	    // kinetic energy of incident electron
+
+    if(ekin <= 2.0*pegs_data.te[imed]) { 
+		/* Kinetic energy threshold not reached, therefore a Moller scattering
+		cannot happen */
+		return;
+	}
+
+	double t0 = ekin/RM;    // kinetic energy of incident electron in RM units
+	double e0 = t0 + 1.0;   // total energy of incident electron in RM units
+	double extrae = eie - pegs_data.thmoll[imed]; // energy above Moller thresh
+
+	double g2; double g3;   // used for rejection function calculation
+	g2 = pow(t0, 2.0)/pow(e0, 2.0); 
+	g3 = (2.0*t0 + 1.0)/pow(e0, 2.0);
+	
+	double br;  // kinetic energy fraction to lowew energy electron
+	double gmax = (1.0 + 1.25*g2);  // maximum value of the rejection function
+	double rejf4;   // rejection function
+	double r;
+	double rnno27; double rnno28;   // random numbers
+
+	do {
+		/* To retry if rejected */
+		rnno27 = setRandom();
+
+        /* set epsilon, which is the ratio between the scattered kinetic energy 
+        and the kinetic incident energy */
+		br = pegs_data.te[imed]/(ekin - extrae*rnno27); 
+		r = br/(1.0 - br);
+		rnno28 = setRandom();
+		rejf4 = (1.0 + g2*pow(br, 2.0) + r*(r - g3)); // rejection function 
+													  // multiplied by gmax
+		rnno28 *= gmax;
+	} while(rnno28 > rejf4);
+
+	double ekse2 = br*ekin;     // kinetic energy of secondary electron #2
+	double ese1 = eie - ekse2;  // energy of secondary electron #1
+	double ese2 = ekse2 + RM;   // energy of secondary electron #2
+
+	stack.e[np] = ese1;
+	stack.e[np+1] = ese2;
+
+	double h1 = (eie + RM)/ekin;  // used for polar scattering angle calculation
+	double costh = h1*(ese1 - RM)/(ese1 + RM); // polar scattering angle squared
+	double sinthe = sqrt(1.0 - costh);
+	double costhe = sqrt(costh);
+
+    struct Uphi uphi;
+	uphi21(&uphi, costhe, sinthe);
+
+	/* Related change and setup for "new" electron */
+	np += 1;
+	stack.np = np; // it is needed to update stack index for uphi32()
+	stack.iq[np] = -1;
+	costh = h1*(ese2 - RM)/(ese2 + RM);
+	sinthe = -sqrt(1.0 - costh);
+	costhe = sqrt(costh);
+	uphi32(&uphi, costhe, sinthe);
+
+    return;
+}
+
+void bhabha() {
+
+    /* A call to this function is defined and calculated as a Bhabha scattering
+	which impart to the secondary electron enough energy that it will be 
+	transported discretely. I.e. E=AE or T=TE. However, it is not guaranteed
+	that the final positron will have this much energy. The exact Bhabha 
+	differential cross section is used */
+
+	int np = stack.np;
+    int irl = stack.ir[np];
+    int imed = region.med[irl];
+	double eip = stack.e[np];   // total energy of incident positron
+	double ekin = eip - RM;     // kinetic energy of incident positron		
+	double t0 = ekin/RM;        // kinetic energy of incident positron RM units
+	double e0 = t0 + 1.0;       // total energy of incident positron in RM units
+
+	double yy = 1.0/(t0 + 2.0);
+	double beta2 = (pow(e0, 2.0) - 1.0)/pow(e0, 2.0);   // incident positron 
+													    // velocity in c units
+	double ep0 = pegs_data.te[imed]/ekin;   // minimum fractional energy of a 
+										    // secondary 'electron'
+	double ep0c = 1.0 - ep0;
+	double yp = 1.0 - 2.0*yy;
+
+    /* Used in rejection function calculation */
+	double b1; double b2; double b3; double b4; 
+	b4 = pow(yp, 3.0);
+	b3 = b4 + pow(yp, 2.0);
+	b2 = yp*(3.0 + pow(yy, 2.0));
+	b1 = 2.0 - pow(yy, 2.0);
+
+	/* Sample br from min(ep0) to 1.0 */
+	double rnno03; double rnno04;   // random numbers
+	double br;      // kinetic energy fraction of the secondary 'electron'
+	double rejf2;   // rejection function
+
+	do { 
+		rnno03 = setRandom();
+		br = ep0/(1.0 - ep0c*rnno03);
+
+		/* Apply rejection function */
+		rnno04 = setRandom();
+		rejf2 = (1.0 - beta2*br*(b1 - br*(b2 - br*(b3 - br*b4)))); 
+	} while(rnno04 > rejf2);
+
+	/* If electron got more than positron, move positron pointer and 
+    reflect br */
+	if(br < 0.5) { 
+		stack.iq[np+1] = -1;
+	}
+	else { 
+		stack.iq[np] = -1;
+		stack.iq[np+1] = 1;
+		br = 1.0 - br;
+		/* This puts positron on top of the stack if it has less energy */
+	}
+
+	/* Divide up the energy. */
+	br = fmax(br, 0.0);     // avoids possible negative number due to round-off
+	double ekse2 = br*ekin;      // kinetic energy of secondary 'electron' 2
+	double ese1 = eip - ekse2;   // energy of secondary 'electron' 1
+	double ese2 = ekse2 + RM;    // energy of secondary 'electron' 2
+	stack.e[np] = ese1;
+	stack.e[np+1] = ese2;
+
+	/* Bhabha angles are uniquely determined by kinematics */
+	double h1 = (eip + RM)/ekin; // used in direction cosine calculations
+
+	/* Direction cosine change for 'old' electron */
+	double costh = fmin(1.0, h1*(ese1 - RM)/(ese1 + RM)); 
+
+	double sinthe = sqrt(1.0 - costh);
+	double costhe = sqrt(costh);
+    struct Uphi uphi;
+	uphi21(&uphi, costhe, sinthe);
+
+	np += 1;
+	stack.np = np; // it is needed to update stack index for uphi32()
+
+	costh = h1*(ese2 - RM)/(ese2 + RM);
+	sinthe = -sqrt(1.0 - costh);
+	costhe = sqrt(costh);
+	uphi32(&uphi, costhe, sinthe);
+
+    return;
+}
+
+void annih() {
+
+    /* Gamma spectrum for two gamma in-flight positron annihilation using 
+	scheme based on Heitler's formulae */
+	int np = stack.np;
+	double avip = stack.e[np] + RM; // available energy of incident positron, 
+									// i.e. electron assumed to be at rest.
+	double a = avip/RM; // total energy in units of the electron's rest energy
+	double g, t, p; // energy, kinetic energy and momentum in units of RM
+	g = a - 1.0;
+	t = g - 1.0;
+	p = sqrt(a*t);
+
+	double pot = p/t;                       // "p over t"
+	double ep0 = 1.0/(a+p);                 // minimum fractional energy
+	double wsamp = log((1.0 - ep0)/ep0);    // the logarithm is calculated
+										    // outside the loop
+
+	double aa = stack.u[np]; // for inline rotations
+	double bb = stack.v[np];
+    double cc = stack.w[np];
+    double sinpsi = pow(aa, 2.0) + pow(bb, 2.0);
+	double sindel; double cosdel;   // for inline rotations
+
+	if(sinpsi > 1.0E-20) { 
+		sinpsi = sqrt(sinpsi);
+		sindel = bb/sinpsi;
+		cosdel = aa/sinpsi;
+	}
+
+	double ep;  // fractional energy of the more energetic photon
+	double rejf;                    // rejection function
+	double rnno01; double rnno02;   // random numbers 
+
+	do { 
+		rnno01 = setRandom();
+		ep = ep0*exp(rnno01*wsamp);
+
+		/* Now decide whether to accept */
+        rnno02 = setRandom();
+		rejf = 1.0 - pow(ep*a - 1.0, 2.0)/(ep*(pow(a, 2.0) - 2.0));
+	} while(rnno02 > rejf);
+
+	/* Set-up energies. */
+	double esg1 = avip*ep;   // energy of secondary gamma 1
+	stack.e[np] = esg1;
+	stack.iq[np] = 0;
+	transferProperties(np, np);
+
+	double costhe = fmin(1.0, (esg1 - RM)*pot/esg1);
+	double sinthe = sqrt(1.0 - pow(costhe, 2.0));
+
+	/* The following variables are for azimuthal angle sampling */
+	double sphi; double cphi;   // sine and cosine of the azimuthal angle
+	double phi = 2.0*M_PI*setRandom();
+	sphi = sin(phi);
+    cphi = cos(phi);
+
+	double us; double vs; // for inline rotations
+	if(sinpsi >= 1.0E-10) { 
+		us = sinthe*cphi;
+		vs = sinthe*sphi;
+		
+		stack.u[np] = cc*cosdel*us - sindel*vs + aa*costhe;
+        stack.v[np] = cc*sindel*us + cosdel*vs + bb*costhe; 
+	    stack.w[np] = cc*costhe - sinpsi*us;
+	}
+	else { 
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi; 
+	    stack.w[np] = cc*costhe;
+	}
+
+	np += 1;
+	double esg2 = avip - esg1;
+	stack.e[np] = esg2;
+	stack.iq[np] = 0;
+	transferProperties(np, np-1);
+
+	costhe = fmin(1.0, (esg2 - RM)*pot/esg2);
+	sinthe = -sqrt(1.0 - pow(costhe, 2.0));
+
+	if(sinpsi >= 1.0E-10) { 
+		us = sinthe*cphi;
+		vs = sinthe*sphi;
+		
+        stack.u[np] = cc*cosdel*us - sindel*vs + aa*costhe;
+        stack.v[np] = cc*sindel*us + cosdel*vs + bb*costhe; 
+	    stack.w[np] = cc*costhe - sinpsi*us;
+	}
+	else { 
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi; 
+	    stack.w[np] = cc*costhe;
+	}
+
+	/* Update stack index */
+	stack.np = np;
+
+    return;
+}
+
 int pwlfInterval(int idx, double lvar, double *coef1, double *coef0) {
     
-    return (int)lvar*coef1[idx] + coef0[idx];
+    return (int)(lvar*coef1[idx] + coef0[idx]);
 }
 
 double pwlfEval(int idx, double lvar, double *coef1, double *coef0) {
