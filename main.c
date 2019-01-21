@@ -723,6 +723,8 @@ int main (int argc, char **argv) {
         }
         printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
                etot/score.ensrc);
+        printf("Fraction of incident energy outside the phantom: %5.4f\n",
+               score.accum_endep[0]/score.ensrc);
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */
@@ -5505,11 +5507,11 @@ void electron() {
     int medold; 
 
     double rnno;
-    
+
     /* First check of electron cut-off energy */
     if(eie <= region.ecut[irl]) {
         
-        edep = eie - RM;    // get energy deposition for user
+        edep = stack.e[np] - RM;    // get energy deposition for user
 
         /* Call ausgab and drop energy on spot */
         ausgab(edep);
@@ -5535,7 +5537,7 @@ void electron() {
     int lelke;   // index into the energy grid of tabulated funtions
     double sigratio = 0.0;
     double rfict = 0.0; // rejection function for fictitius cross section.
-    
+
     do {    // start of tstep loop
         
         /* Go through this loop each time we recompute distance to an
@@ -5712,8 +5714,7 @@ void electron() {
 
 								/* First calculate range from eke to E(lelke) */
 								ekei = electron_data.e_array[imed*MXEKE+lelke];
-								elkei = ((double)(lelke + 1) - 
-                                    electron_data.eke0[imed])/
+								elkei = (lelke+1 - electron_data.eke0[imed])/
                                     electron_data.eke1[imed];
 								tuss = computeDrange(imed, iq, lelke, 
                                     eke, ekei, elke, elkei);
@@ -5721,8 +5722,7 @@ void electron() {
 								/* Then from E(lelfke+1) to ekef */
 								ekei = electron_data.e_array[imed*MXEKE+
                                     lelkef+1];
-								elkei = ((double)(lelkef + 2) - 
-                                    electron_data.eke0[imed])/
+								elkei = ((lelkef+2) - electron_data.eke0[imed])/
                                     electron_data.eke1[imed];
 								tstep = computeDrange(imed, iq, lelkef, 
                                     ekei, ekef, elkei, elkef);
@@ -5764,7 +5764,7 @@ void electron() {
 				first energy in the table. Limit the electron step to 
 				this range */
                 ekei = electron_data.e_array[imed*MXEKE+lelke];
-                elkei = ((double)(lelke + 1) - electron_data.eke0[imed])/
+                elkei = (lelke+1 - electron_data.eke0[imed])/
                         electron_data.eke1[imed];
                 range = computeDrange(imed, iq, lelke, eke, ekei, 
                         elke, elkei);
@@ -5777,16 +5777,14 @@ void electron() {
 				path-length to the next interaction */
 				tustep = fmin(fmin(tstep, tmxs), range);
 
-				/* Optional tustep restriction in EM field should be here */
-
 				/* Obtain perpendicular distance to nearest boundary */
 				double tperp = hownear();
 				stack.dnear[np] = tperp;
 
 				/* Set the minimum step size for a CH step, due to efficiency 
 				considerations. It is calculated with eke and elke */
-				double blccl = region.rhof[irl]*electron_data.blcc[imed];
-				double xccl = region.rhof[irl]*electron_data.xcc[imed];
+				double blccl = rhof*electron_data.blcc[imed];
+				double xccl = rhof*electron_data.xcc[imed];
 				p2 = eke*(eke+2.0*RM);
 				beta2 = p2/(p2 + pow(RM, 2.0));
 
@@ -5829,7 +5827,7 @@ void electron() {
 
 					/* Compute energy loss due to sub-threshold processes 
 					for a path-length tustep */
-					de = computeEloss(imed, iq, irl, region.rhof[irl],
+					de = computeEloss(imed, iq, irl, rhof,
 					    tustep,	range, eke, elke, lelke);
 
 					tvstep = tustep;
@@ -5839,7 +5837,7 @@ void electron() {
 					spatial deflections for the path-length tustep.
 					ustep is the straight-line distance between 
 					initial and final position of the particle */                    
-					ustep = msdist(imed, iq, region.rhof[irl], de, tustep, eke,
+					ustep = msdist(imed, iq, rhof, de, tustep, eke,
                     	&x_final, &y_final, &z_final,
                         &u_final, &v_final, &w_final);                    
 				}
@@ -5862,21 +5860,30 @@ void electron() {
                     /* Calculate number of mean free paths (elastic scattering cross-section)*/
 					double lambda = (-1.0)*log(1.0 - rnno); 
 					double lambda_max = 0.5*blccl*RM/dedx*pow((eke/RM+1.0),3.0);
-
-					if (lambda < lambda_max) {
+                                        
+                    if (lambda >= 0.0 && lambda_max > 0.0) {
+                        if (lambda < lambda_max) {
 						tuss = lambda*ssmfp*(1.0 - 0.5*lambda/lambda_max);
-					}
-					else {
-						tuss = 0.5*lambda*ssmfp;
-					}
-					if (tuss < tustep) {
-						tustep = tuss;
-						do_single = 1;  // i.e. true
-					}
-					else {
-						do_single = 0;  // i.e. false
-					}
-
+                        }
+                        else {
+                            tuss = 0.5*lambda*ssmfp;
+                        }
+                        if (tuss < tustep) {
+                            tustep = tuss;
+                            do_single = 1;  // i.e. true
+                        }
+                        else {
+                            do_single = 0;  // i.e. false
+                        }    
+                    }
+                    else {
+                        printf("Warning!, lambda = %f > lambda_max = %f\n", 
+                            lambda, lambda_max);
+                        do_single = 0;
+                        stack.np -= 1;
+                        return;
+                    }
+                    
 					ustep = tustep;
 					if (ustep < tperp) {
 						call_howfar = 0;
@@ -5900,10 +5907,10 @@ void electron() {
 			if (idisc > 0) {
 				/* User requested electron discard */
                 if(iq > 0) {
-                    edep = eie + RM;
+                    edep = stack.e[np] + RM;
                 }
                 else {
-                    edep = eie - RM;
+                    edep = stack.e[np] - RM;
                 }
 
                 /* Call ausgab and drop energy on spot */
@@ -5926,6 +5933,11 @@ void electron() {
                 return;
 			}
             
+            if (ustep < 0) {
+                /* Negative ustep */
+                printf("Warning!, negative ustep = %f\n", ustep);
+                ustep = 0.0;
+            }
 			double vstep;	// transport distance after truncation by howfar
 			
 			if (ustep == 0.0f || imed == -1) {
@@ -5939,7 +5951,7 @@ void electron() {
 					/* Transport the particle */
                     stack.x[np] += stack.u[np]*vstep;
                     stack.y[np] += stack.v[np]*vstep;
-                    stack.w[np] += stack.w[np]*vstep;
+                    stack.z[np] += stack.w[np]*vstep;
                     stack.dnear[np] -= vstep;
 				}   // end of vacuum step
 
@@ -5953,7 +5965,7 @@ void electron() {
                 /* First check of electron cut-off energy */
                 if(eie <= region.ecut[irl]) {
                     
-                    edep = eie - RM;    // get energy deposition for user
+                    edep = stack.e[np] - RM;    // get energy deposition for user
                     
                     /* Call ausgab and drop energy on spot */
                     ausgab(edep);
@@ -5990,7 +6002,7 @@ void electron() {
 
 				/* Fourth order technique for dedx. Must be done for a 
 				single scattering step */
-				de = computeEloss(imed, iq, irl, region.rhof[irl], 
+				de = computeEloss(imed, iq, irl, rhof, 
                     tvstep,	range, eke,	elke, lelke);
 			}
 			else {
@@ -6000,7 +6012,7 @@ void electron() {
 				if (called_msdist == 0) {
 					/* Second order technique for dedx. Already done in a 
 					normal CH step with call to msdist */
-					de = computeEloss(imed,	iq, irl, region.rhof[irl],
+					de = computeEloss(imed,	iq, irl, rhof,
 						tvstep,	range, eke, elke, lelke);
 				}
 			}   // end of call_howfar if-else sentence.
@@ -6034,7 +6046,7 @@ void electron() {
 					}
 					else {
 						etap = pwlfEval(MXEKE*imed+lelkems, elkems, 
-                            electron_data.etap_ms1, electron_data.etae_ms0);
+                            electron_data.etap_ms1, electron_data.etap_ms0);
 					}
 					chia2 *= etap;
 
@@ -6074,7 +6086,7 @@ void electron() {
 				}
 			}
 
-			/* The electron step is about to occur, score the energy 
+            /* The electron step is about to occur, score the energy 
             deposited */
             ausgab(edep);
 
@@ -6095,7 +6107,7 @@ void electron() {
 
             if(irnew == irl && eie <= region.ecut[irl]) {
                     
-                    edep = eie - RM;    // get energy deposition for user
+                    edep = stack.e[np] - RM;    // get energy deposition for user
                     
                     /* Call ausgab and drop energy on spot */
                     ausgab(edep);
@@ -6137,7 +6149,7 @@ void electron() {
             /* Check electron cut-off energy */
 			if(eie <= region.ecut[irl]) {
         
-                edep = eie - RM;    // get energy deposition for user
+                edep = stack.e[np] - RM;    // get energy deposition for user
                 
                 /* Call ausgab and drop energy on spot */
                 ausgab(edep);
@@ -6173,7 +6185,7 @@ void electron() {
 			}
 
         } while (demfp >= EPSEMFP); // end of ustep loop
-       
+
         /* If following is true, it means that particle has carried out a fast 
     	step in vacuum or has changed medium. In that case, go to beginning of 
 		tstep loop */
@@ -6262,6 +6274,7 @@ void electron() {
 		}
 	}
     
+    /* Return to shower */
     return;
 }
 
@@ -6278,7 +6291,7 @@ double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
 
 	double dedxmid; 
     double aux;
-	double fedep = 1.0 - ekef / ekei;
+	double fedep = 1.0 - ekef/ekei;
 
 	/* First evaluate the logarithm of the energy midpoint */
 	double elktmp = 0.5*(elkei + elkef +
@@ -6297,7 +6310,7 @@ double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
 		aux = electron_data.pdedx1[MXEKE*imed+lelke]*dedxmid;
 	}
 
-	aux *= (1.0 + 2.0*aux)*(fedep/(2.0 - fedep))*(fedep/(2.0 - fedep))/6.0;
+	aux = aux*(1.0 + 2.0*aux)*pow(fedep/(2.0 - fedep),2.0)/6.0;
 
 	return fedep*ekei*dedxmid*(1.0 + aux);
 }
@@ -6367,7 +6380,7 @@ double computeEloss(int imed, int iq, int irl, double rhof,
                     imed*MXEKE+lelktmp]) {
 				lelktmp -= 1;
 			}
-			elktmp = (lelktmp + 2.0 - electron_data.eke0[imed])/
+			elktmp = (lelktmp+2 - electron_data.eke0[imed])/
                 electron_data.eke1[imed];
 			eketmp = electron_data.e_array[imed*MXEKE+lelktmp+1];
 
@@ -6441,7 +6454,8 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
 	double elke = log(e);
 	int lelke = pwlfInterval(imed, elke,    // adjusted to C index standard
         electron_data.eke1, electron_data.eke0) - 1;
-    if (lelke < 1) {    // This should normally not happen
+
+    if (lelke < 0) {    // This should normally not happen
 		lelke = 0;
 		elke = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
 	}
@@ -6819,7 +6833,7 @@ double spinRejection(int imed, int qel,	double elke, double beta2, double q1,
 				spin_r->j = MXQ_SPIN;
 			}
 			else {
-				aj -= (int)spin_r->j;
+				aj -= (double)spin_r->j;
 				rnno = setRandom();
 				if (rnno < aj) {
 					spin_r->j += 1;
@@ -6833,12 +6847,14 @@ double spinRejection(int imed, int qel,	double elke, double beta2, double q1,
 	k = (int)ak;
 	ak -= (double)k;
 
-	double spin_rej = spin_data.spin_rej[qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*
-        (MXU_SPIN+1) + (spin_r->i)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
-        (spin_r->j)*(MXU_SPIN+1) + k];
-	double spin_rej2 =	spin_data.spin_rej[qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*
-        (MXU_SPIN+1) + (spin_r->i)*(MXQ_SPIN+1)*(MXU_SPIN+1)+ 
-        (spin_r->j)*(MXU_SPIN+1) + (k+1)];
+	double spin_rej = spin_data.spin_rej[
+        imed*2*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        spin_r->i*(MXQ_SPIN+1)*(MXU_SPIN+1) + spin_r->j*(MXU_SPIN+1) + k];
+	double spin_rej2 =	spin_data.spin_rej[
+        imed*2*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        spin_r->i*(MXQ_SPIN+1)*(MXU_SPIN+1) + spin_r->j*(MXU_SPIN+1) + (k+1)];
 	double spin_reject = (1.0 - ak)*(spin_rej) + ak*spin_rej2;
 
 	return spin_reject;
@@ -7057,7 +7073,8 @@ void brems() {
 	double costhe = 1.0 - 2.0*y2tst*y2maxi;
     double sinthe = sqrt(fmax(0.0 ,(1.0 - pow(costhe, 2.0))));
 
-    double phi = setRandom()*M_PI;
+    /* Azimuthal angle sampling */
+    double phi = 2.0*setRandom()*M_PI;
     double cphi = cos(phi);
     double sphi = sin(phi);
 
