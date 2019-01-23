@@ -323,7 +323,6 @@ struct Rayleigh {
     double *fcum;
     double *b_array;
     double *c_array;
-    double *pe_array;
     double *pmax0;
     double *pmax1;
     int *i_array;
@@ -731,18 +730,22 @@ int main (int argc, char **argv) {
     outputResults(output_file, iout, nperbatch, nbatch);
     
     /* Cleaning */
+    cleanElectron();
+    cleanPair();
     cleanPhantom();
     cleanPhoton();
-    cleanRayleigh();
-    cleanPair();
-    cleanElectron();
     cleanMscat();
-    cleanSpin();
-    cleanRegions();
     cleanRandom();
+    cleanRayleigh();
+    cleanRegions();
     cleanScore();
+    cleanSource();
+    cleanSpin();
     cleanStack();
-    
+
+    free(input_file);
+    free(output_file);
+
     /* Get total execution time */
     tend = clock();
     printf("Total execution time : %8.5f seconds\n",
@@ -757,7 +760,7 @@ void parseInputFile(char *input_file) {
     
     /* Make space for the new string */
     char *extension = ".inp";
-    char* file_name = malloc(strlen(input_file) + strlen(extension) + 1);
+    char *file_name = malloc(strlen(input_file) + strlen(extension) + 1);
     strcpy(file_name, input_file);
     strcat(file_name, extension); /* add the extension */
     
@@ -788,6 +791,9 @@ void parseInputFile(char *input_file) {
                    input_items[i].value);
         }
     }
+
+    /* Cleaning */
+    free(file_name);
     
     return;
 }
@@ -1107,6 +1113,7 @@ void initSource() {
         fclose(fp);
         free(ensrcd);
         free(srcpdf);
+        free(srccdf);
     }
     else {  /* monoenergetic source */
         if (getInputValue(buffer, "mono energy") != 1) {
@@ -2702,6 +2709,7 @@ void cleanPhoton() {
     free(photon_data.gbr10);
     free(photon_data.gbr11);
     free(photon_data.gbr20);
+    free(photon_data.gbr21);
     free(photon_data.cohe0);
     free(photon_data.cohe1);
     
@@ -3200,6 +3208,7 @@ void readFfData(double *xval, double **aff) {
 
 void cleanRayleigh() {
     
+    free(rayleigh_data.xgrid);
     free(rayleigh_data.b_array);
     free(rayleigh_data.c_array);
     free(rayleigh_data.fcum);
