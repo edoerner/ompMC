@@ -1786,8 +1786,11 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
         }
     }
     fprintf(fp, "\n");
-    
+
+    /* Cleaning */
     fclose(fp);
+    free(file_name);
+
     return;
 }
 
@@ -2696,7 +2699,7 @@ void readXsecData(char *file, int *ndat,
         printf("Could not read the data file %s\n", file);
         exit(EXIT_FAILURE);
     }
-    
+
     return;
 }
 
@@ -5349,11 +5352,13 @@ void initSpinData(int nmed) {
         
     }
     
-    fclose(fp);
-    
     /* Cleaning */
+    fclose(fp);
+    free(spin_buffer);
+    free(spin_buffer_int);
     free(earray);
     free(eta_array);
+    free(fmax_array);
     free(c_array);
     free(g_array);
     free(elarray);
