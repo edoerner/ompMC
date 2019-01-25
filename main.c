@@ -24,6 +24,10 @@
 #include <math.h>
 #include <time.h>
 
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
+#endif
+
 /******************************************************************************/
 /* Parsing program options with getopt long
  http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
@@ -4682,7 +4686,7 @@ void readRutherfordMscat(int nmed) {
     mscat_data.wms_array =
         malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
     mscat_data.ims_array =
-        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(int));
     
     printf("Reading multi-scattering data from file : %s\n", file);
     
@@ -5516,9 +5520,9 @@ void electron() {
     
     struct Uphi uphi;
     double eie = stack.e[np];       // energy of incident electron
-    int iq = stack.iq[np];         // charge of current particle.
+    int iq = stack.iq[np];          // charge of current particle.
     int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
-    int medold; 
+    int medold = imed;               
 
     double rnno;
 
@@ -6757,19 +6761,19 @@ void mscat(int imed, int qel, int *spin_index, int *find_index,
 			ak = xi*MXU_MS;
 			k = ak;
 			ak -= k;
-
-			if (ak > mscat_data.wms_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*k]) {
-				k = mscat_data.ims_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
-                    (MXL_MS+1)*(MXQ_MS+1)*k];
+            
+			if (ak > mscat_data.wms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k]) {
+				k = mscat_data.ims_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
 			}
 
-			a = mscat_data.fms_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
-                (MXL_MS+1)*(MXQ_MS+1)*k];
-			u = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*k];
-			du = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*(k+1)] - u;
+			a = mscat_data.fms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			u = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			du = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k] - u;
 			xi = setRandom();
 
 			if (fabs(a) < 0.2) {
