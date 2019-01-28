@@ -24,6 +24,10 @@
 #include <math.h>
 #include <time.h>
 
+#ifndef M_PI
+    #define M_PI 3.14159265358979323846
+#endif
+
 /******************************************************************************/
 /* Parsing program options with getopt long
  http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
@@ -334,7 +338,6 @@ struct Rayleigh {
     double *fcum;
     double *b_array;
     double *c_array;
-    double *pe_array;
     double *pmax0;
     double *pmax1;
     int *i_array;
@@ -753,7 +756,8 @@ int main (int argc, char **argv) {
     cleanRandom();
     cleanScore();
     cleanStack();
-    
+    free(input_file);
+    free(output_file);
     /* Get total execution time */
     tend = clock();
     printf("Total execution time : %8.5f seconds\n",
@@ -799,7 +803,10 @@ void parseInputFile(char *input_file) {
                    input_items[i].value);
         }
     }
-    
+
+    /* Cleaning */
+    free(file_name);
+
     return;
 }
 
@@ -1119,6 +1126,7 @@ void initSource() {
         fclose(fp);
         free(ensrcd);
         free(srcpdf);
+        free(srccdf);
     }
     else {  /* monoenergetic source */
         if (getInputValue(buffer, "mono energy") != 1) {
@@ -1700,7 +1708,10 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     }
     fprintf(fp, "\n");
     
+    /* Cleaning */
     fclose(fp);
+    free(file_name);
+
     return;
 }
 
@@ -2666,6 +2677,7 @@ void cleanPhoton() {
     free(photon_data.gbr10);
     free(photon_data.gbr11);
     free(photon_data.gbr20);
+    free(photon_data.gbr21);
     free(photon_data.cohe0);
     free(photon_data.cohe1);
     
@@ -3190,6 +3202,7 @@ void readFfData(double *xval, double **aff) {
 
 void cleanRayleigh() {
     
+    free(rayleigh_data.xgrid);
     free(rayleigh_data.b_array);
     free(rayleigh_data.c_array);
     free(rayleigh_data.fcum);
@@ -5404,12 +5417,14 @@ void initSpinData(int nmed) {
             electron_data.blcce0[MXEKE*imed + neke - 2];
         
     }
-    
-    fclose(fp);
-    
+        
     /* Cleaning */
+    fclose(fp);
+    free(spin_buffer);
+    free(spin_buffer_int);
     free(earray);
     free(eta_array);
+    free(fmax_array);
     free(c_array);
     free(g_array);
     free(elarray);
@@ -5580,9 +5595,9 @@ void electron() {
     
     struct Uphi uphi;
     double eie = stack.e[np];       // energy of incident electron
-    int iq = stack.iq[np];         // charge of current particle.
+    int iq = stack.iq[np];          // charge of current particle.
     int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
-    int medold; 
+    int medold = imed; 
 
     double rnno;
 
@@ -6822,18 +6837,18 @@ void mscat(int imed, int qel, int *spin_index, int *find_index,
 			k = ak;
 			ak -= k;
 
-			if (ak > mscat_data.wms_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*k]) {
-				k = mscat_data.ims_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
-                    (MXL_MS+1)*(MXQ_MS+1)*k];
+			if (ak > mscat_data.wms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k]) {
+				k = mscat_data.ims_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
 			}
 
-			a = mscat_data.fms_array[m_scat->i + (MXL_MS+1)*(m_scat->j)	+ 
-                (MXL_MS+1)*(MXQ_MS+1)*k];
-			u = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*k];
-			du = mscat_data.ums_array[m_scat->i + (MXL_MS+1)*(m_scat->j) + 
-                (MXL_MS+1)*(MXQ_MS+1)*(k+1)] - u;
+			a = mscat_data.fms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			u = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			du = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k] - u;
 			xi = setRandom();
 
 			if (fabs(a) < 0.2) {
