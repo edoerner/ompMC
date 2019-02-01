@@ -249,6 +249,7 @@ struct Spinr {
 
 void shower(void);
 void transferProperties(int npnew, int npold);
+void selectAzimuthalAngle(double *costhe, double *sinthe);
 void uphi21(struct Uphi *uphi, double costhe, double sinthe);
 void uphi32(struct Uphi *uphi, double costhe, double sinthe);
 
@@ -1420,6 +1421,27 @@ void transferProperties(int npnew, int npold) {
     return;
 }
 
+void selectAzimuthalAngle(double *costhe, double *sinthe) {
+    /* Function for azimuthal angle selecton using a sampling within a box 
+    method */
+    double xphi, xphi2, yphi, yphi2, rhophi2;
+
+    do {
+        xphi = setRandom();
+        xphi = 2.0*xphi - 1.0;
+        xphi2 = xphi*xphi;
+
+        yphi = setRandom();
+        yphi2  = yphi*yphi;
+        rhophi2 = xphi2 + yphi2;        
+    } while(rhophi2 > 1.0);
+
+    rhophi2 = 1/rhophi2;
+    *costhe = (xphi2 - yphi2)*rhophi2;
+    *sinthe = 2.0*xphi*yphi*rhophi2;
+
+    return;
+}
 
 /* The following set of uphi functions set coordinates for new particle or
  reset direction cosines of old one. Generate random azimuth selection and
@@ -1430,10 +1452,12 @@ void uphi21(struct Uphi *uphi,
     /* This section is used if costhe and sinthe are already known. Phi
      is selected uniformly over the interval (0,2Pi) */
     int np = stack.np;
-    double r1 = setRandom();
-    double phi = 2.0f*M_PI*r1;
-    uphi->sinphi = sin(phi);
-    uphi->cosphi = cos(phi);
+    /*double r1 = setRandom();
+    double phi = 2.0f*M_PI*r1;*/
+    selectAzimuthalAngle(&(uphi->cosphi), &(uphi->sinphi));
+
+    /*uphi->sinphi = sin(phi);
+    uphi->cosphi = cos(phi);*/
     
     /* The following section is used for the second of two particles when it is
      known that there is a relationship in their corrections. In this version
@@ -3633,7 +3657,9 @@ void photon() {
             int idisc = 0;          // assume photon is not discarded
             double ustep = tstep;    // transfer transport distance to user variable
 
-            howfar(&idisc, &irnew, &ustep);
+            if(ustep > stack.dnear[np] || stack.wt[np] <= 0) {
+                howfar(&idisc, &irnew, &ustep);
+            }
             
             if (idisc > 0) {
                 /* User requested inmediate discard */
@@ -3650,7 +3676,8 @@ void photon() {
             stack.x[np] += vstep*stack.u[np];
             stack.y[np] += vstep*stack.v[np];
             stack.z[np] += vstep*stack.w[np];
-            
+            stack.dnear[np] -= ustep;
+
             if (imed != -1) {
                 /* Deduct mean free path */
                 dpmfp = fmax(0.0, dpmfp-ustep/gmfp);
@@ -4723,7 +4750,7 @@ void readRutherfordMscat(int nmed) {
     mscat_data.wms_array =
         malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
     mscat_data.ims_array =
-        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(int));
     
     printf("Reading multi-scattering data from file : %s\n", msnew_file);
     
