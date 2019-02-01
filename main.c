@@ -238,6 +238,7 @@ struct Spinr {
 
 void shower(void);
 void transferProperties(int npnew, int npold);
+void selectAzimuthalAngle(double *costhe, double *sinthe);
 void uphi21(struct Uphi *uphi, double costhe, double sinthe);
 void uphi32(struct Uphi *uphi, double costhe, double sinthe);
 
@@ -1162,7 +1163,7 @@ void initSource() {
            (geometry.xbounds[source.ixinl + 1] < source.xinl)) {
         source.ixinl++;
     }
-    
+        
     source.ixinu = source.ixinl - 1;
     while ((geometry.xbounds[source.ixinu] <= source.xinu) &&
            (geometry.xbounds[source.ixinu + 1] < source.xinu)) {
@@ -1198,7 +1199,7 @@ void initSource() {
         source.iyinu++;
     }
     printf("j index ranges over i = %d to %d\n", source.iyinl, source.iyinu);
-    
+
     /* Calculate collimator sizes */
     source.xsize = source.xinu - source.xinl;
     source.ysize = source.yinu - source.yinl;
@@ -1489,6 +1490,19 @@ void cleanRandom() {
 
 void shower() {
     
+    // printf("iq = %d\n", stack.iq[stack.np]);
+    // printf("e = %f\n", stack.e[stack.np]);
+    // printf("u = %f\n", stack.u[stack.np]);
+    // printf("v = %f\n", stack.v[stack.np]);
+    // printf("w = %f\n", stack.w[stack.np]);
+    // printf("x = %f\n", stack.x[stack.np]);
+    // printf("y = %f\n", stack.y[stack.np]);
+    // printf("z = %f\n", stack.z[stack.np]);
+    // printf("ir = %d\n", stack.ir[stack.np]);
+    // printf("wt = %f\n", stack.wt[stack.np]);
+    // printf("dnear = %f\n", stack.dnear[stack.np]);
+    // exit(1);
+
     while (stack.np >= 0) {
         if (stack.iq[stack.np] == 0) {
             photon();
@@ -1518,6 +1532,27 @@ void transferProperties(int npnew, int npold) {
     return;
 }
 
+void selectAzimuthalAngle(double *costhe, double *sinthe) {
+    /* Function for azimuthal angle selecton using a sampling within a box 
+    method */
+    double xphi, xphi2, yphi, yphi2, rhophi2;
+
+    do {
+        xphi = setRandom();
+        xphi = 2.0*xphi - 1.0;
+        xphi2 = xphi*xphi;
+
+        yphi = setRandom();
+        yphi2  = yphi*yphi;
+        rhophi2 = xphi2 + yphi2;        
+    } while(rhophi2 > 1.0);
+
+    rhophi2 = 1/rhophi2;
+    *costhe = (xphi2 - yphi2)*rhophi2;
+    *sinthe = 2.0*xphi*yphi*rhophi2;
+
+    return;
+}
 
 /* The following set of uphi functions set coordinates for new particle or
  reset direction cosines of old one. Generate random azimuth selection and
@@ -1528,10 +1563,12 @@ void uphi21(struct Uphi *uphi,
     /* This section is used if costhe and sinthe are already known. Phi
      is selected uniformly over the interval (0,2Pi) */
     int np = stack.np;
-    double r1 = setRandom();
-    double phi = 2.0f*M_PI*r1;
-    uphi->sinphi = sin(phi);
-    uphi->cosphi = cos(phi);
+    /*double r1 = setRandom();
+    double phi = 2.0f*M_PI*r1;*/
+    selectAzimuthalAngle(&(uphi->cosphi), &(uphi->sinphi));
+
+    /*uphi->sinphi = sin(phi);
+    uphi->cosphi = cos(phi);*/
     
     /* The following section is used for the second of two particles when it is
      known that there is a relationship in their corrections. In this version
@@ -1835,37 +1872,6 @@ void initHistory() {
     stack.np = 0;
     stack.iq[stack.np] = source.charge;
     
-    /* Get primary particle energy */
-    double ein = 0.0;
-    if (source.spectrum) {
-        /* Sample initial energy from spectrum data */
-        double rnno1 = setRandom();
-        double rnno2 = setRandom();
-        
-        /* Sample bin number in order to select particle energy */
-        int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
-        ein = source.cdfinv1[k] + rnno2*source.cdfinv2[k];
-    }
-    else {
-        /* Monoenergetic source */
-        ein = source.energy;
-    }
-    
-    /* Check if the particle is an electron, in such a case add electron
-     rest mass energy */
-    if (stack.iq[stack.np] != 0) {
-        /* Electron or positron */
-        stack.e[stack.np] = ein + RM;
-    }
-    else {
-        /* Photon */
-        stack.e[stack.np] = ein;
-    }
-    
-    /* Accumulate sampled kinetic energy for fraction of deposited energy
-     calculations */
-    score.ensrc += ein;
-    
     /* Set particle position. First obtain a random position in the rectangle
      defined by the collimator */
     double rxyz = 0.0;
@@ -1881,8 +1887,9 @@ void initHistory() {
         
     } else {
         double fw;
-        while (1) { /* rejection sampling of the initial position */
-            double rnno3 = setRandom();
+        double rnno3;
+        do { /* rejection sampling of the initial position */
+            rnno3 = setRandom();
             stack.x[stack.np] = rnno3*source.xsize + source.xinl;
             rnno3 = setRandom();
             stack.y[stack.np] = rnno3*source.ysize + source.yinl;
@@ -1892,12 +1899,9 @@ void initHistory() {
             
             /* Get direction along z-axis */
             stack.w[stack.np] = source.ssd/rxyz;
-            
+
             fw = pow(stack.w[stack.np], 3.0);
-            if (rnno3 < fw) {
-                break;
-            }
-        }   /* end of while loop */
+        } while(rnno3 >= fw);
     }
     /* Set position of the particle in front of the geometry */
     stack.z[stack.np] = geometry.zbounds[0];
@@ -1929,8 +1933,40 @@ void initHistory() {
     }
     stack.ir[stack.np] = 1 + ix + iy*geometry.isize;
     
-    /* Set statistical weight */
+    /* Set statistical weight and distance to closest boundary*/
     stack.wt[stack.np] = 1.0;
+    stack.dnear[stack.np] = 0.0;
+
+    /* Get primary particle energy */
+    double ein = 0.0;
+    if (source.spectrum) {
+        /* Sample initial energy from spectrum data */
+        double rnno1 = setRandom();
+        double rnno2 = setRandom();
+        
+        /* Sample bin number in order to select particle energy */
+        int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
+        ein = source.cdfinv1[k] + rnno2*source.cdfinv2[k];
+    }
+    else {
+        /* Monoenergetic source */
+        ein = source.energy;
+    }
+    
+    /* Check if the particle is an electron, in such a case add electron
+     rest mass energy */
+    if (stack.iq[stack.np] != 0) {
+        /* Electron or positron */
+        stack.e[stack.np] = ein + RM;
+    }
+    else {
+        /* Photon */
+        stack.e[stack.np] = ein;
+    }
+    
+    /* Accumulate sampled kinetic energy for fraction of deposited energy
+     calculations */
+    score.ensrc += ein;
     
     return;
 }
@@ -3619,8 +3655,10 @@ void photon() {
             int irnew = irl;       // default new region number
             int idisc = 0;          // assume photon is not discarded
             double ustep = tstep;    // transfer transport distance to user variable
-
-            howfar(&idisc, &irnew, &ustep);
+            
+            if(ustep > stack.dnear[np] || stack.wt[np] <= 0) {
+                howfar(&idisc, &irnew, &ustep);
+            }            
             
             if (idisc > 0) {
                 /* User requested inmediate discard */
@@ -3637,6 +3675,7 @@ void photon() {
             stack.x[np] += vstep*stack.u[np];
             stack.y[np] += vstep*stack.v[np];
             stack.z[np] += vstep*stack.w[np];
+            stack.dnear[np] -= ustep;
             
             if (imed != -1) {
                 /* Deduct mean free path */
@@ -3689,9 +3728,37 @@ void photon() {
                                photon_data.gbr11, photon_data.gbr10);
         if (rnno <= gbr1 && eig>2.0*RM) {
             /* It was pair production */
+            // printf("*** Before Pair ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Photon ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
             pair(imed);
-            
             np = stack.np;
+            // printf("*** After Pair ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Electron2 ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
+            // printf("*** Electron1 ***\n");
+            // printf("e[n] = %f\n", stack.e[np-1]);
+            // printf("x[n] = %f\n", stack.x[np-1]);
+            // printf("y[n] = %f\n", stack.y[np-1]);
+            // printf("z[n] = %f\n", stack.z[np-1]);
+            // printf("u[n] = %f\n", stack.u[np-1]);
+            // printf("v[n] = %f\n", stack.v[np-1]);
+            // printf("w[n] = %f\n", stack.w[np-1]);            
+            
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
@@ -3704,9 +3771,36 @@ void photon() {
         
         if (rnno < gbr2) {
             /* It was compton */
-            compton();
-            
+            // printf("*** Before Compton ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Photon ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
+            compton();            
             np = stack.np;
+            // printf("*** After Compton ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Photon ***\n");
+            // printf("e[n-1] = %f\n", stack.e[np-1]);
+            // printf("x[n-1] = %f\n", stack.x[np-1]);
+            // printf("y[n-1] = %f\n", stack.y[np-1]);
+            // printf("z[n-1] = %f\n", stack.z[np-1]);
+            // printf("u[n-1] = %f\n", stack.u[np-1]);
+            // printf("v[n-1] = %f\n", stack.v[np-1]);
+            // printf("w[n-1] = %f\n", stack.w[np-1]);
+            // printf("*** Electron ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
@@ -3714,8 +3808,27 @@ void photon() {
         }
         else {
             /* It was photoelectric */
+            // printf("*** Before Photo ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Photon ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
             photo();
-            
+            // printf("*** After Photo ***\n");
+            // printf("np = %d\n", np);
+            // printf("*** Electron ***\n");
+            // printf("e[n] = %f\n", stack.e[np]);
+            // printf("x[n] = %f\n", stack.x[np]);
+            // printf("y[n] = %f\n", stack.y[np]);
+            // printf("z[n] = %f\n", stack.z[np]);
+            // printf("u[n] = %f\n", stack.u[np]);
+            // printf("v[n] = %f\n", stack.v[np]);
+            // printf("w[n] = %f\n", stack.w[np]);
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
@@ -4001,8 +4114,8 @@ void pair(int imed) {
         costhe = cos(theta);
         
         if (j == 0) {
-            /* First Particle */
-            uphi21(&uphi, costhe, sinthe);
+            /* First Particle */            
+            uphi21(&uphi, costhe, sinthe);           
         }
         else {
             /* Second Particle */
@@ -4010,7 +4123,7 @@ void pair(int imed) {
             
             /* Update stack index, it is needed by uphi32() */
             np += 1;
-            stack.np = np;
+            stack.np = np;            
             uphi32(&uphi, costhe, sinthe);
         }
     }
@@ -4105,7 +4218,7 @@ void compton() {
     stack.e[np] = esg;  /* change of energy */
     
     /* Adjust direction of photon */
-    struct Uphi uphi;
+    struct Uphi uphi;    
     uphi21(&uphi, costhe, sinthe);
     
     /* Adding new electron to stack. Update stack counter for uphi32() */
