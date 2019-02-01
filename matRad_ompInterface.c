@@ -490,8 +490,8 @@ void mexFunction(
             
             //Set new nzmax and reallocate more memory
             mxSetNzmax(plhs[0], nzmax);
-            mxSetPr(plhs[0], mxRealloc(sr, nzmax*sizeof(double)));
-            mxSetIr(plhs[0], mxRealloc(irs, nzmax*sizeof(int)));
+            mxSetPr(plhs[0], (double *) mxRealloc(sr, nzmax*sizeof(double)));
+            mxSetIr(plhs[0], (mwIndex *)  mxRealloc(irs, nzmax*sizeof(mwIndex)));
             
             //Use the new pointers
             sr  = mxGetPr(plhs[0]);
