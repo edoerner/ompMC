@@ -446,9 +446,9 @@ void mexFunction(
 //                        (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
 // 
 //             }
-			int ihist;
-			#pragma omp parallel for firstprivate(ihist,nperbatch) schedule(dynamic)
-			for (ihist=0; ihist<nperbatch; ihist++) {
+			      int ihist;
+			      #pragma omp parallel for schedule(dynamic)
+			      for (ihist=0; ihist<nperbatch; ihist++) {
                 /* Initialize particle history */	
 				        initHistory(ibeamlet);
 
@@ -532,7 +532,7 @@ void mexFunction(
         
         /* Reset accum_endep for following beamlet */
         memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
-        
+                
 		    double progress = (double) (ibeamlet+1) / (double) source.nbeamlets;
 		
 		    //Update the waitbar with waitbar(hWaitbar,progress);
