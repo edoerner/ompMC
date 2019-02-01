@@ -183,6 +183,7 @@ struct Stack {
     double *wt;     // particle weight
 };
 struct Stack stack;
+#pragma omp threadprivate(stack)
 
 void initStack(void);
 void initHistory(int ibeamlet);
@@ -219,6 +220,7 @@ struct Random {
     double twom24;
 };
 struct Random rng;
+#pragma omp threadprivate(rng)
 
 void initRandom(void);
 void getRandom(void);
@@ -648,11 +650,16 @@ int main (int argc, char **argv) {
     /* Preparation of scoring struct */
     initScore();
     
-    /* Initialize random number generator */
-    initRandom();
-    
-    /* Initialize particle stack */
-    initStack();
+    #pragma omp parallel
+    {
+      /* Initialize random number generator */
+      initRandom();
+
+      /* Initialize particle stack */
+
+      initStack();
+    }
+
     
     /* In verbose mode, list interaction data to output folder */
     if (verbose_flag) {
@@ -711,8 +718,9 @@ int main (int argc, char **argv) {
                    (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
             
         }
-        
-        for (int ihist=0; ihist<nperbatch; ihist++) {
+        int ihist;
+        #pragma omp parallel for schedule(dynamic)
+        for (ihist=0; ihist<nperbatch; ihist++) {
             /* Initialize particle history */
             initHistory(ihist);
             
@@ -754,9 +762,12 @@ int main (int argc, char **argv) {
     cleanMscat();
     cleanSpin();
     cleanRegions();
-    cleanRandom();
     cleanScore();
-    cleanStack();
+    #pragma omp parallel
+    {
+      cleanRandom();
+      cleanStack();
+    }
     free(input_file);
     free(output_file);
     /* Get total execution time */
@@ -1584,8 +1595,10 @@ void accumulateResults(int iout, int nhist, int nbatch)
     /* Calculate incident fluence */
     double inc_fluence = (double)nhist;
     double mass;
-            
-    for (int iz=0; iz<geometry.ksize; iz++) {
+    int iz;
+
+    #pragma omp parallel for private(irl,endep,endep2,unc_endep,mass)
+    for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
                 irl = 1 + ix + iy*imax + iz*ijmax;
@@ -1637,7 +1650,8 @@ void accumulateResults(int iout, int nhist, int nbatch)
     }
     
     /* Zero dose in air */
-    for (int iz=0; iz<geometry.ksize; iz++) {
+    #pragma omp parallel for private(irl,endep,endep2,unc_endep,mass)
+    for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
                 irl = 1 + ix + iy*imax + iz*ijmax;
@@ -1746,6 +1760,7 @@ void ausgab(double edep) {
     double endep = stack.wt[np]*edep;
     
     /* Deposit particle energy on spot */
+	  #pragma omp atomic
     score.endep[irl] += endep;
     
     return;

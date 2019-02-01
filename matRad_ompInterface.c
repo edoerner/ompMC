@@ -1,6 +1,14 @@
 #include <mex.h>
+
+#define printf(x) fprintf(stderr,x)
+
 #include <matrix.h>
 #include "math.h"
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #ifndef M_PI
 #    define M_PI 3.14159265358979323846
 #endif
@@ -13,10 +21,11 @@
 #define exit(EXIT_FAILURE) mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalid","Abort.");
 
 
-#define printf mexPrintf
+//#define printf mexPrintf
 
 #define MATLAB_COMPILE_MEX
 #include "main.c"
+
 
 void initPhantomFromMatlab();
 
@@ -380,12 +389,15 @@ void mexFunction(
     
     /* Preparation of scoring struct */
     initScore();
+    #pragma omp parallel
+    {
+      /* Initialize random number generator */
+      initRandom();
     
-    /* Initialize random number generator */
-    initRandom();
+      /* Initialize particle stack */
     
-    /* Initialize particle stack */
-    initStack();
+      initStack();
+    }
     
     /* In verbose mode, list interaction data to output folder */
     if (verbose_flag) {
@@ -434,13 +446,15 @@ void mexFunction(
 //                        (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
 // 
 //             }
-
-            for (int ihist=0; ihist<nperbatch; ihist++) {
-                /* Initialize particle history */
-                initHistory(ibeamlet);
+			      int ihist;
+			      #pragma omp parallel for schedule(dynamic)
+			      for (ihist=0; ihist<nperbatch; ihist++) {
+                /* Initialize particle history */	
+				        initHistory(ibeamlet);
 
                 /* Start electromagnetic shower simulation */
                 shower();
+
             }
 
             /* Accumulate results of current batch for statistical analysis */
@@ -490,8 +504,8 @@ void mexFunction(
             
             //Set new nzmax and reallocate more memory
             mxSetNzmax(plhs[0], nzmax);
-            mxSetPr(plhs[0], mxRealloc(sr, nzmax*sizeof(double)));
-            mxSetIr(plhs[0], mxRealloc(irs, nzmax*sizeof(int)));
+            mxSetPr(plhs[0], (double *) mxRealloc(sr, nzmax*sizeof(double)));
+            mxSetIr(plhs[0], (mwIndex *)  mxRealloc(irs, nzmax*sizeof(mwIndex)));
             
             //Use the new pointers
             sr  = mxGetPr(plhs[0]);
@@ -518,7 +532,7 @@ void mexFunction(
         
         /* Reset accum_endep for following beamlet */
         memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
-        
+                
 		    double progress = (double) (ibeamlet+1) / (double) source.nbeamlets;
 		
 		    //Update the waitbar with waitbar(hWaitbar,progress);
@@ -580,10 +594,13 @@ void mexFunction(
     cleanElectron();
     cleanMscat();
     cleanSpin();
-    cleanRegions();
-    cleanRandom();
+    cleanRegions();    
     cleanScore();
-    cleanStack();
+    #pragma omp parallel
+    {
+      cleanRandom();
+      cleanStack();
+    }
     
     /* Get total execution time */
     tend = clock();
