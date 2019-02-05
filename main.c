@@ -1653,7 +1653,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
     }
     
     /* Zero dose in air */
-    #pragma omp parallel for firstprivate(iz) private(irl,endep,endep2,unc_endep,mass)
+    #pragma omp parallel for firstprivate(iz) private(irl)
     for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {

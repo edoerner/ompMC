@@ -442,6 +442,8 @@ void mexFunction(
     mwIndex linIx = 0;
     jcs[0] = 0;
     
+    double progress = 0.0;
+
     for(int ibeamlet=0; ibeamlet<source.nbeamlets; ibeamlet++) {
         for (int ibatch=0; ibatch<nbatch; ibatch++) {
 //             if (ibatch == 0) {
@@ -470,6 +472,19 @@ void mexFunction(
 
             /* Accumulate results of current batch for statistical analysis */
             accumEndep();
+
+            progress = ((double) ibeamlet + (double) (ibatch+1) / nbatch) / source.nbeamlets;
+
+            (*mxGetPr(waitbarProgress)) = progress;
+
+            if (waitbarOutput && waitbarHandle)
+            {              
+              waitbarInputs[0] = waitbarProgress;
+              waitbarInputs[1] = waitbarHandle;
+              waitbarInputs[2] = waitbarMessage;
+              status = mexCallMATLAB(0, waitbarOutput, 2, waitbarInputs, "waitbar");
+            }
+
         }
         
         int iout = 1;   /* i.e. deposit mean dose per particle fluence */
@@ -501,14 +516,24 @@ void mexFunction(
         if ((linIx + nnz) > nzmax)
         {
             int oldnzmax = nzmax;
-            percent_sparse += percentage_steps;
+            percent_sparse += percentage_steps;            
             
             nzmax = (mwSize) ceil((double)nCubeElements*(double)source.nbeamlets*percent_sparse);
             
+           
             
             /* Make sure nzmax increases atleast by 1. */
             if (oldnzmax == nzmax)
                 nzmax++;
+
+            /* Check that the new nmax is large enough and if not, also adjust the percentage_steps since we seem to have set it too small for this particular use case */
+            if (nzmax < (linIx + nnz))
+            {
+                nzmax = linIx + nnz;
+                percent_sparse = (double) nzmax / nCubeElements;
+                percentage_steps = percent_sparse;
+            }
+
             
             if (verbose_flag)
                 mexPrintf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n",oldnzmax,nzmax);
@@ -544,17 +569,18 @@ void mexFunction(
         /* Reset accum_endep for following beamlet */
         memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));
                 
-		    double progress = (double) (ibeamlet+1) / (double) source.nbeamlets;
+		    progress = (double) (ibeamlet+1) / (double) source.nbeamlets;
 		
+        (*mxGetPr(waitbarProgress)) = progress;
+
 		    //Update the waitbar with waitbar(hWaitbar,progress);
 		    if (waitbarOutput && waitbarHandle)
 		    {
-			  (* mxGetPr (waitbarProgress)) = progress;
-			  waitbarInputs[0] = waitbarProgress;
-			  waitbarInputs[1] = waitbarHandle;		
-			  waitbarInputs[2] = waitbarMessage;
-			  status = mexCallMATLAB(0,waitbarOutput,2,waitbarInputs,"waitbar");
-		  }
+			      waitbarInputs[0] = waitbarProgress;
+			      waitbarInputs[1] = waitbarHandle;		
+			      waitbarInputs[2] = waitbarMessage;
+			      status = mexCallMATLAB(0,waitbarOutput,2,waitbarInputs,"waitbar");
+		    }
         
     }
 	  mxDestroyArray (waitbarProgress);
