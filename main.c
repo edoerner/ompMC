@@ -1572,7 +1572,10 @@ void accumEndep() {
     /* Accumulate endep and endep squared for statistical analysis */
     double edep = 0.0;
     
-    for (int irl=0; irl<gridsize + 1; irl++) {
+    int irl = 0;
+    
+    #pragma omp parallel for firstprivate(irl,edep)
+    for (irl=0; irl<gridsize + 1; irl++) {
         edep = score.endep[irl];
         
         score.accum_endep[irl] += edep;
@@ -1597,7 +1600,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
     double mass;
     int iz;
 
-    #pragma omp parallel for private(irl,endep,endep2,unc_endep,mass)
+    #pragma omp parallel for firstprivate(iz) private(irl,endep,endep2,unc_endep,mass)
     for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
@@ -1650,7 +1653,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
     }
     
     /* Zero dose in air */
-    #pragma omp parallel for private(irl,endep,endep2,unc_endep,mass)
+    #pragma omp parallel for firstprivate(iz) private(irl,endep,endep2,unc_endep,mass)
     for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {

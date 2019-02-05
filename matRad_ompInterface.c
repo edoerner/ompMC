@@ -87,6 +87,17 @@ void mexFunction(
     if(!mxIsStruct(mcSrc))
         mexErrMsgIdAndTxt( "MATLAB:phonebook:inputNotStruct",
                 "Input 4 must be a mcSrc Structure.");
+
+
+    //Thread set-up
+
+#ifdef _OPENMP
+    int numOmpProcs = omp_get_num_procs();
+    mexPrintf("Number of cores: %d...\n", numOmpProcs);
+    omp_set_num_threads(numOmpProcs);
+#else
+    mexPrintf("ompMC was not compiled with OpenMP... using only 1 thread!\n");
+#endif
     
     
     //Parse Geometric Information
@@ -447,7 +458,7 @@ void mexFunction(
 // 
 //             }
 			      int ihist;
-			      #pragma omp parallel for schedule(dynamic)
+			      #pragma omp parallel for schedule(dynamic) firstprivate(ihist)
 			      for (ihist=0; ihist<nperbatch; ihist++) {
                 /* Initialize particle history */	
 				        initHistory(ibeamlet);
