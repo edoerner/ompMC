@@ -1,8 +1,7 @@
 #include <mex.h>
 
-#define printf(x) fprintf(stderr,x)
+#define printf(...) fprintf(stderr,__VA_ARGS__)
 
-#include <matrix.h>
 #include "math.h"
 
 #ifdef _OPENMP
@@ -460,7 +459,7 @@ void mexFunction(
 // 
 //             }
 			      int ihist;
-			      #pragma omp parallel for schedule(dynamic) firstprivate(ihist)
+			      #pragma omp parallel for schedule(dynamic)
 			      for (ihist=0; ihist<nperbatch; ihist++) {
                 /* Initialize particle history */	
 				        initHistory(ibeamlet);
