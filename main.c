@@ -1925,7 +1925,7 @@ void initHistory(int ibeamlet) {
     }
     
     int iz = 0;
-    while ((geometry.xbounds[iz+1] < stack.z[stack.np])) {
+    while ((geometry.zbounds[iz+1] < stack.z[stack.np])) {
         iz++;
     }
     
