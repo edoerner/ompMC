@@ -1,5 +1,6 @@
 #include <mex.h>
 
+#include "stdio.h"
 #define printf(...) fprintf(stderr,__VA_ARGS__)
 
 #include "math.h"
