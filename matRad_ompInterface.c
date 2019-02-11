@@ -638,11 +638,11 @@ void mexFunction(
       cleanRandom();
       cleanStack();
     }
-    
+	mexPrintf("Freed ompMC memory...\n");
+	
     /* Get total execution time */
-    tend = clock();
-    printf("Total execution time : %8.5f seconds\n",
-           (double)(tend - tbegin)/CLOCKS_PER_SEC);
+    mexPrintf("Total execution time : %8.5f seconds\n",
+           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
         
     
     
