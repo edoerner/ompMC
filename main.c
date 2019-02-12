@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <float.h>
 
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
@@ -1912,20 +1913,53 @@ void initHistory(int ibeamlet) {
     stack.u[stack.np] = -u;
     stack.v[stack.np] = -v;
     stack.w[stack.np] = -w;
-    
+    /*
+    if (stack.x[stack.np] <= geometry.xbounds[0])
+    {
+      printf("Fixed out of Bounds for Particle %d: x diff from lower xbound=%f\n", stack.np, stack.x[stack.np] - geometry.xbounds[0]);
+      stack.x[stack.np] = geometry.xbounds[0] + 2 * DBL_MIN;
+    }
+    if (stack.x[stack.np] >= geometry.xbounds[geometry.isize + 1])
+    {
+      printf("Fixed out of Bounds for Particle %d: x diff from upper xbound=%f\n", stack.np, stack.x[stack.np] - geometry.xbounds[geometry.isize + 1]);
+      stack.x[stack.np] = geometry.xbounds[geometry.isize + 1] - 2 * DBL_MIN;
+    }
+
+    if (stack.y[stack.np] <= geometry.ybounds[0])
+    {
+      printf("Fixed out of Bounds for Particle %d: y diff from lower ybound=%f\n", stack.np, stack.y[stack.np] - geometry.ybounds[0]);
+      stack.y[stack.np] = geometry.ybounds[0] + 2 * DBL_MIN;
+    }
+    if (stack.y[stack.np] >= geometry.ybounds[geometry.jsize + 1])
+    {
+      printf("Fixed out of Bounds for Particle %d: y diff from higher ybound=%f\n", stack.np, stack.y[stack.np] - geometry.ybounds[geometry.jsize + 1]);
+      stack.y[stack.np] = geometry.ybounds[geometry.jsize + 1] - 2 * DBL_MIN;
+    }
+
+    if (stack.z[stack.np] <= geometry.zbounds[0])
+    {
+      printf("Fixed out of Bounds for Particle %d: z diff from lower zbound=%f\n", stack.np, stack.z[stack.np] - geometry.zbounds[0]);
+      stack.z[stack.np] = geometry.ybounds[0] + 2 * DBL_MIN;
+    }
+    if (stack.z[stack.np] >= geometry.zbounds[geometry.ksize + 1])
+    {
+      printf("Fixed out of Bounds for Particle %d: z diff from higher zbound=%f\n", stack.np, stack.z[stack.np] - geometry.zbounds[geometry.ksize + 1]);
+      stack.z[stack.np] = geometry.zbounds[geometry.ksize + 1] - 2 * DBL_MIN;
+    }
+    */
     /* Determine region index of source particle */
     int ix = 0;
-    while ((geometry.xbounds[ix+1] < stack.x[stack.np])) {
+    while ((geometry.xbounds[ix+1] < stack.x[stack.np]) && ix < geometry.isize-1) {
         ix++;
     }
     
     int iy = 0;
-    while ((geometry.ybounds[iy+1] < stack.y[stack.np])) {
+    while ((geometry.ybounds[iy+1] < stack.y[stack.np]) && iy < geometry.jsize-1) {
         iy++;
     }
     
     int iz = 0;
-    while ((geometry.zbounds[iz+1] < stack.z[stack.np])) {
+    while ((geometry.zbounds[iz+1] < stack.z[stack.np]) && iz < geometry.ksize-1) {
         iz++;
     }
     

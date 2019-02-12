@@ -1,13 +1,14 @@
 #include <mex.h>
 
-#include "stdio.h"
-#define printf(...) fprintf(stderr,__VA_ARGS__)
-
+#include <stdio.h>
+#ifdef _OPENMP
+  #include <omp.h>
+  #define printf(...) fprintf(stderr,__VA_ARGS__)
+#else
+  #define printf mexPrintf
+#endif
 #include "math.h"
 
-#ifdef _OPENMP
-#include <omp.h>
-#endif
 
 #ifndef M_PI
 #    define M_PI 3.14159265358979323846
