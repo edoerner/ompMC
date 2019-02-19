@@ -48,6 +48,8 @@ static int verbose_flag;
 #include <string.h>
 #include <ctype.h>
 
+#define BUFFER_SIZE 256
+
 /* Parse a configuration file */
 void parseInputFile(char *file_name);
 
@@ -675,7 +677,7 @@ int main (int argc, char **argv) {
     /* Shower call */
     
     /* Get number of histories and statistical batches */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "ncase") != 1) {
         printf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -781,7 +783,7 @@ int main (int argc, char **argv) {
 #endif
 void parseInputFile(char *input_file) {
     
-    char buf[120];      // support lines up to 120 characters
+    char buf[BUFFER_SIZE];      // support lines up to 120 characters
     
     /* Make space for the new string */
     char *extension = ".inp";
@@ -795,7 +797,7 @@ void parseInputFile(char *input_file) {
         exit(EXIT_FAILURE);
     }
     
-    while (fgets(buf, sizeof(buf), fp) != NULL) {
+    while (fgets(buf, BUFFER_SIZE , fp) != NULL) {
         /* Jumps lines labeled with #, together with only white
          spaced or empty ones. */
         if (strstr(buf, "#") || lineBlack(buf)) {
@@ -875,7 +877,7 @@ void initPhantom() {
     
     /* Get phantom file path from input data */
     char phantom_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "phantom file") != 1) {
         printf("Can not find 'phantom file' key on input file.\n");
@@ -894,20 +896,20 @@ void initPhantom() {
     printf("Path to phantom file : %s\n", phantom_file);
     
     /* Get number of media in the phantom */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     geometry.nmed = atoi(buffer);
     
     /* Get media names on phantom file */
     for (int i=0; i<geometry.nmed; i++) {
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         removeSpaces(geometry.med_names[i], buffer);
     }
     
     /* Skip next line, it contains dummy input */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     
     /* Read voxel numbers on each direction */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     sscanf(buffer, "%d %d %d", &geometry.isize,
            &geometry.jsize, &geometry.ksize);
     
@@ -927,7 +929,7 @@ void initPhantom() {
     }
     
     /* Skip the rest of the last line read before */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     
     /* Read media indices */
     int irl = 0;    // region index
@@ -943,10 +945,10 @@ void initPhantom() {
                 geometry.med_indices[irl] = idx - '0';
             }
             /* Jump to next line */
-            fgets(buffer, sizeof(buffer), fp);
+            fgets(buffer, BUFFER_SIZE, fp);
         }
         /* Skip blank line */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
     }
     
     /* Read media densities */
@@ -960,7 +962,7 @@ void initPhantom() {
             }
         }
         /* Skip blank line */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
     }
     
     /* Summary with geometry information */
@@ -1002,7 +1004,7 @@ void initSource() {
     
     /* Get spectrum file path from input data */
     char spectrum_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     source.spectrum = 1;    /* energy spectrum as default case */
     
@@ -1027,7 +1029,7 @@ void initSource() {
         printf("Path to spectrum file : %s\n", spectrum_file);
         
         /* Read spectrum file title */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         printf("Spectrum file title: %s", buffer);
         
         /* Read number of bins and spectrum type */
@@ -1035,7 +1037,7 @@ void initSource() {
         int nensrc;     /* number of energy bins in spectrum histogram */
         int imode;      /* 0 : histogram counts/bin, 1 : counts/MeV*/
         
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         sscanf(buffer, "%d %lf %d", &nensrc, &enmin, &imode);
         
         if (nensrc > MXEBIN) {
@@ -1051,7 +1053,7 @@ void initSource() {
         
         /* Read spectrum information */
         for (int i=0; i<nensrc; i++) {
-            fgets(buffer, sizeof(buffer), fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             sscanf(buffer, "%lf %lf", &ensrcd[i], &srcpdf[i]);
         }
         printf("Have read %d input energy bins from spectrum file.\n", nensrc);
@@ -1177,7 +1179,7 @@ void initRegions() {
     region.ecut = malloc(nreg*sizeof(double));
     
     /* First get global energy cutoff parameters */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "global ecut") != 1) {
         printf("Can not find 'global ecut' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -1264,7 +1266,7 @@ void cleanRegions() {
 void initRandom() {
     
     /* Get initial seeds from input */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "rng seeds") != 1) {
         printf("Can not find 'rng seeds' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -1690,7 +1692,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -2033,7 +2035,7 @@ int readPegsFile(int *media_found) {
     
     /* Get file path from input data */
     char pegs_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "pegs file") != 1) {
         printf("Can not find 'pegs file' key on input file.\n");
@@ -2096,8 +2098,8 @@ int readPegsFile(int *media_found) {
     
     do {
         /* Read a line of pegs file */
-        char buffer[80];
-        fgets(buffer, sizeof(buffer), fp);
+        char buffer[BUFFER_SIZE];
+        fgets(buffer, BUFFER_SIZE, fp);
         
         /* Here starts a medium definition */
         if (strstr(buffer, " MEDIUM=") == buffer) {
@@ -2147,7 +2149,7 @@ int readPegsFile(int *media_found) {
             
             /* Read the next line containing the density, number of elements
              and flags */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             int ok = 1;
             char s[100];
             char s2[100];
@@ -2246,7 +2248,7 @@ int readPegsFile(int *media_found) {
             /* Read elements, same algorithm */
             for (int m = 0; m < pegs_data.ne[imed]; m++) {
                 struct Element element = { 0 };
-                fgets(buffer, 80, fp);
+                fgets(buffer, BUFFER_SIZE, fp);
                 char s[100];
                 char s2[100];
                 char* temp;
@@ -2352,7 +2354,7 @@ int readPegsFile(int *media_found) {
             }
             
             /* Read next line that contines rlc, ae, ap, ue, up */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             
             /* The format specifier '%lf' is needed to correctly recognize
              engineering notation. I do not now if this is a property of
@@ -2366,7 +2368,7 @@ int readPegsFile(int *media_found) {
             pegs_data.thmoll[imed] = (pegs_data.te[imed]) * 2 + RM;
             
             /* Save the medium and mark it found */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             if (sscanf(buffer, "%d %d %d %d %d %d %d\n",
                        &pegs_data.msge[imed], &pegs_data.mge[imed],
                        &pegs_data.mseke[imed], &pegs_data.meke[imed],
@@ -2489,7 +2491,7 @@ void initPhotonData() {
     
     /* Get file path from input data */
     char photon_xsection[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "data folder") != 1) {
         printf("Can not find 'data folder' key on input file.\n");
@@ -2765,7 +2767,7 @@ void listPhoton() {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -3218,7 +3220,7 @@ void readFfData(double *xval, double **aff) {
     
     /* Get file path from input data */
     char pgs4form_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "pgs4form file") != 1) {
         printf("Can not find 'pgs4form file' key on input file.\n");
@@ -3294,7 +3296,7 @@ void listRayleigh() {
        
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -3563,7 +3565,7 @@ void listPair() {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -4571,7 +4573,7 @@ void listElectron(void) {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -4774,7 +4776,7 @@ void readRutherfordMscat(int nmed) {
     
     /* Get file path from input data */
     char data_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "data folder") != 1) {
         printf("Can not find 'data folder' key on input file.\n");
@@ -4865,7 +4867,7 @@ void listMscat() {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
@@ -4948,7 +4950,7 @@ void initSpinData(int nmed) {
     
     /* Get file path from input data */
     char data_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "data folder") != 1) {
         printf("Can not find 'data folder' key on input file.\n");
@@ -5528,7 +5530,7 @@ void listSpin() {
     
     /* Get file path from input data */
     char output_folder[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
         printf("Can not find 'output folder' key on input file.\n");
