@@ -2034,7 +2034,7 @@ void initMediaData(){
 int readPegsFile(int *media_found) {
     
     /* Get file path from input data */
-    char pegs_file[128];
+    char pegs_file[BUFFER_SIZE];
     char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "pegs file") != 1) {
@@ -2109,9 +2109,11 @@ int readPegsFile(int *media_found) {
                 name_with_spaces[c] = buffer[c + 8];
                 c++;
             }
-            
+
             /* Next algorithm take out spaces */
             name_with_spaces[c] = '\0';
+            printf("\t Medium: %s", name_with_spaces);
+
             char name[25];
             int j = 0;
             /* Read name up to first space */
@@ -2140,6 +2142,7 @@ int readPegsFile(int *media_found) {
                 }
             }
             if (required == 0) { // return to beginning of the do loop
+                printf(" not required!\n");
                 continue;
             }
             
@@ -2151,8 +2154,8 @@ int readPegsFile(int *media_found) {
              and flags */
             fgets(buffer, BUFFER_SIZE, fp);
             int ok = 1;
-            char s[100];
-            char s2[100];
+            char s[BUFFER_SIZE];
+            char s2[BUFFER_SIZE];
             char* temp;
             strcpy(s, buffer);
             char* token = strtok_r(s, ",", &temp);
@@ -2242,6 +2245,7 @@ int readPegsFile(int *media_found) {
                 i++;
             }
             if (!ok) {
+                printf(" not required!\n");
                 continue;
             } // end of 2nd line readings
             
@@ -2249,8 +2253,8 @@ int readPegsFile(int *media_found) {
             for (int m = 0; m < pegs_data.ne[imed]; m++) {
                 struct Element element = { 0 };
                 fgets(buffer, BUFFER_SIZE, fp);
-                char s[100];
-                char s2[100];
+                char s[BUFFER_SIZE];
+                char s2[BUFFER_SIZE];
                 char* temp;
                 strcpy(s, buffer);
                 char* token = strtok_r(s, ",", &temp);
@@ -2383,7 +2387,7 @@ int readPegsFile(int *media_found) {
             }
             
             for (int i = 0; i<7; i++) {
-                fgets(buffer, 100, fp);
+                fgets(buffer, BUFFER_SIZE, fp);
             }
             double del1, del2, del3, del4, del5;
             if (sscanf(buffer, "%lf %lf %lf %lf %lf ",
@@ -2444,6 +2448,7 @@ int readPegsFile(int *media_found) {
             /* Mark the medium found */
             media_found[imed] = 1;
             nmedia++;
+            printf(" required and loaded!\n");
         }
     } while ((nmedia < geometry.nmed) && !feof(fp));
     

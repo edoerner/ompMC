@@ -3,6 +3,7 @@
 #include <stdio.h>
 #ifdef _OPENMP
   #include <omp.h>
+  #undef printf
   #define printf(...) fprintf(stderr,__VA_ARGS__)
 #else
   #define printf mexPrintf
@@ -111,7 +112,7 @@ void mexFunction(
     unsigned int        nFields;
     int     nGeoStructFields;
     mwSize     ndim,nMaterials;
-    mwSize* materialDim;
+    const mwSize* materialDim;
     mxArray* tmpFieldPointer;//, tmpCellPointer;
     
     
