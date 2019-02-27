@@ -2147,7 +2147,7 @@ int readPegsFile(int *media_found) {
             }
             
             /* We have found the i'th required medium */
-            strncpy(pegs_data.names[imed], name, 60);
+            strncpy(pegs_data.names[imed], name, 25);
             pegs_data.ne[imed] = 0;
             
             /* Read the next line containing the density, number of elements
