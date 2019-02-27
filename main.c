@@ -2142,7 +2142,7 @@ int readPegsFile(int *media_found) {
                 }
             }
             if (required == 0) { // return to beginning of the do loop
-                printf(" not required!\n");
+                //printf(" not required!\n");
                 continue;
             }
             
