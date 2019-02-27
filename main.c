@@ -2112,7 +2112,7 @@ int readPegsFile(int *media_found) {
 
             /* Next algorithm take out spaces */
             name_with_spaces[c] = '\0';
-            printf("\t Medium: %s", name_with_spaces);
+            //printf("\t Medium: %s", name_with_spaces);
 
             char name[25];
             int j = 0;
@@ -2245,7 +2245,7 @@ int readPegsFile(int *media_found) {
                 i++;
             }
             if (!ok) {
-                printf(" not required!\n");
+                //printf(" not required!\n");
                 continue;
             } // end of 2nd line readings
             
@@ -2448,7 +2448,7 @@ int readPegsFile(int *media_found) {
             /* Mark the medium found */
             media_found[imed] = 1;
             nmedia++;
-            printf(" required and loaded!\n");
+            //printf(" required and loaded!\n");
         }
     } while ((nmedia < geometry.nmed) && !feof(fp));
     
