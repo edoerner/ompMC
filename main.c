@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <time.h>
+#include <float.h>
 
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
@@ -46,6 +47,7 @@ static int verbose_flag;
 #include <string.h>
 #include <ctype.h>
 
+#define BUFFER_SIZE 256
 /* Parse a configuration file */
 void parseInputFile(char *file_name);
 
@@ -61,8 +63,8 @@ void removeSpaces(char* str_trimmed,
                   const char* str_untrimmed);
 
 struct inputItems {
-    char key[60];
-    char value[60];
+    char key[255];
+    char value[255];
 };
 
 struct inputItems input_items[80];  // i.e. support 80 key,value pairs
@@ -235,7 +237,6 @@ struct Spinr {
     int j;
 };
 
-
 void shower(void);
 void transferProperties(int npnew, int npold);
 void selectAzimuthalAngle(double *costhe, double *sinthe);
@@ -387,7 +388,6 @@ void photo(void);
 #define ESTEPE 0.25
 #define EPSEMFP 1.0E-5  // smallest electron mean free path
 #define SKIN_DEPTH_FOR_BCA 3
-
 
 struct Electron {
     double *esig0;
@@ -656,7 +656,7 @@ int main (int argc, char **argv) {
     /* Shower call */
     
     /* Get number of histories and statistical batches */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "ncase") != 1) {
         printf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -761,7 +761,7 @@ int main (int argc, char **argv) {
 
 void parseInputFile(char *input_file) {
     
-    char buf[120];      // support lines up to 120 characters
+    char buf[BUFFER_SIZE];      // support lines up to 120 characters
     
     /* Make space for the new string */
     char *extension = ".inp";
@@ -775,7 +775,7 @@ void parseInputFile(char *input_file) {
         exit(EXIT_FAILURE);
     }
     
-    while (fgets(buf, sizeof(buf), fp) != NULL) {
+    while (fgets(buf, BUFFER_SIZE , fp) != NULL) {
         /* Jumps lines labeled with #, together with only white
          spaced or empty ones. */
         if (strstr(buf, "#") || lineBlack(buf)) {
@@ -855,7 +855,7 @@ void initPhantom() {
     
     /* Get phantom file path from input data */
     char phantom_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "phantom file") != 1) {
         printf("Can not find 'phantom file' key on input file.\n");
@@ -874,20 +874,20 @@ void initPhantom() {
     printf("Path to phantom file : %s\n", phantom_file);
     
     /* Get number of media in the phantom */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     geometry.nmed = atoi(buffer);
     
     /* Get media names on phantom file */
     for (int i=0; i<geometry.nmed; i++) {
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         removeSpaces(geometry.med_names[i], buffer);
     }
     
     /* Skip next line, it contains dummy input */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     
     /* Read voxel numbers on each direction */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     sscanf(buffer, "%d %d %d", &geometry.isize,
            &geometry.jsize, &geometry.ksize);
     
@@ -907,7 +907,7 @@ void initPhantom() {
     }
     
     /* Skip the rest of the last line read before */
-    fgets(buffer, sizeof(buffer), fp);
+    fgets(buffer, BUFFER_SIZE, fp);
     
     /* Read media indices */
     int irl = 0;    // region index
@@ -923,10 +923,10 @@ void initPhantom() {
                 geometry.med_indices[irl] = idx - '0';
             }
             /* Jump to next line */
-            fgets(buffer, sizeof(buffer), fp);
+            fgets(buffer, BUFFER_SIZE, fp);
         }
         /* Skip blank line */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
     }
     
     /* Read media densities */
@@ -940,7 +940,7 @@ void initPhantom() {
             }
         }
         /* Skip blank line */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
     }
     
     /* Summary with geometry information */
@@ -981,7 +981,7 @@ void initSource() {
     
     /* Get spectrum file path from input data */
     char spectrum_file[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     source.spectrum = 1;    /* energy spectrum as default case */
     
@@ -1006,7 +1006,7 @@ void initSource() {
         printf("Path to spectrum file : %s\n", spectrum_file);
         
         /* Read spectrum file title */
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         printf("Spectrum file title: %s", buffer);
         
         /* Read number of bins and spectrum type */
@@ -1014,7 +1014,7 @@ void initSource() {
         int nensrc;     /* number of energy bins in spectrum histogram */
         int imode;      /* 0 : histogram counts/bin, 1 : counts/MeV*/
         
-        fgets(buffer, sizeof(buffer), fp);
+        fgets(buffer, BUFFER_SIZE, fp);
         sscanf(buffer, "%d %lf %d", &nensrc, &enmin, &imode);
         
         if (nensrc > MXEBIN) {
@@ -1030,7 +1030,7 @@ void initSource() {
         
         /* Read spectrum information */
         for (int i=0; i<nensrc; i++) {
-            fgets(buffer, sizeof(buffer), fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             sscanf(buffer, "%lf %lf", &ensrcd[i], &srcpdf[i]);
         }
         printf("Have read %d input energy bins from spectrum file.\n", nensrc);
@@ -1263,7 +1263,7 @@ void initRegions() {
     region.ecut = malloc(nreg*sizeof(double));
     
     /* First get global energy cutoff parameters */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "global ecut") != 1) {
         printf("Can not find 'global ecut' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -1350,7 +1350,7 @@ void cleanRegions() {
 void initRandom() {
     
     /* Get initial seeds from input */
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "rng seeds") != 1) {
         printf("Can not find 'rng seeds' key on input file.\n");
         exit(EXIT_FAILURE);
@@ -1489,20 +1489,7 @@ void cleanRandom() {
 }
 
 void shower() {
-    
-    // printf("iq = %d\n", stack.iq[stack.np]);
-    // printf("e = %f\n", stack.e[stack.np]);
-    // printf("u = %f\n", stack.u[stack.np]);
-    // printf("v = %f\n", stack.v[stack.np]);
-    // printf("w = %f\n", stack.w[stack.np]);
-    // printf("x = %f\n", stack.x[stack.np]);
-    // printf("y = %f\n", stack.y[stack.np]);
-    // printf("z = %f\n", stack.z[stack.np]);
-    // printf("ir = %d\n", stack.ir[stack.np]);
-    // printf("wt = %f\n", stack.wt[stack.np]);
-    // printf("dnear = %f\n", stack.dnear[stack.np]);
-    // exit(1);
-
+ 
     while (stack.np >= 0) {
         if (stack.iq[stack.np] == 0) {
             photon();
@@ -1917,8 +1904,7 @@ void initHistory() {
         ix = source.ixinl;
     } else {
         ix = source.ixinl - 1;
-        while ((geometry.xbounds[ix] <= stack.x[stack.np]) &&
-               (geometry.xbounds[ix + 1] < stack.x[stack.np])) {
+        while ((geometry.xbounds[ix+1] < stack.x[stack.np]) && ix < geometry.isize-1) {
             ix++;
         }
     }
@@ -1926,8 +1912,7 @@ void initHistory() {
         iy = source.iyinl;
     } else {
         iy = source.iyinl - 1;
-        while ((geometry.ybounds[iy] <= stack.y[stack.np]) &&
-               (geometry.xbounds[iy + 1] < stack.y[stack.np])) {
+        while ((geometry.ybounds[iy+1] < stack.y[stack.np]) && iy < geometry.jsize-1) {
             iy++;
         }
     }
@@ -2030,8 +2015,8 @@ void initMediaData(){
 int readPegsFile(int *media_found) {
     
     /* Get file path from input data */
-    char pegs_file[128];
-    char buffer[128];
+    char pegs_file[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "pegs file") != 1) {
         printf("Can not find 'pegs file' key on input file.\n");
@@ -2094,8 +2079,8 @@ int readPegsFile(int *media_found) {
     
     do {
         /* Read a line of pegs file */
-        char buffer[80];
-        fgets(buffer, sizeof(buffer), fp);
+        char buffer[BUFFER_SIZE];
+        fgets(buffer, BUFFER_SIZE, fp);
         
         /* Here starts a medium definition */
         if (strstr(buffer, " MEDIUM=") == buffer) {
@@ -2140,15 +2125,15 @@ int readPegsFile(int *media_found) {
             }
             
             /* We have found the i'th required medium */
-            strncpy(pegs_data.names[imed], name, 60);
+            strncpy(pegs_data.names[imed], name, 25);
             pegs_data.ne[imed] = 0;
             
             /* Read the next line containing the density, number of elements
              and flags */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             int ok = 1;
-            char s[100];
-            char s2[100];
+            char s[BUFFER_SIZE];
+            char s2[BUFFER_SIZE];
             char* temp;
             strcpy(s, buffer);
             char* token = strtok_r(s, ",", &temp);
@@ -2244,9 +2229,9 @@ int readPegsFile(int *media_found) {
             /* Read elements, same algorithm */
             for (int m = 0; m < pegs_data.ne[imed]; m++) {
                 struct Element element = { 0 };
-                fgets(buffer, 80, fp);
-                char s[100];
-                char s2[100];
+                fgets(buffer, BUFFER_SIZE, fp);
+                char s[BUFFER_SIZE];
+                char s2[BUFFER_SIZE];
                 char* temp;
                 strcpy(s, buffer);
                 char* token = strtok_r(s, ",", &temp);
@@ -2350,7 +2335,7 @@ int readPegsFile(int *media_found) {
             }
             
             /* Read next line that contines rlc, ae, ap, ue, up */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             
             /* The format specifier '%lf' is needed to correctly recognize
              engineering notation. I do not now if this is a property of
@@ -2364,7 +2349,7 @@ int readPegsFile(int *media_found) {
             pegs_data.thmoll[imed] = (pegs_data.te[imed]) * 2 + RM;
             
             /* Save the medium and mark it found */
-            fgets(buffer, 80, fp);
+            fgets(buffer, BUFFER_SIZE, fp);
             if (sscanf(buffer, "%d %d %d %d %d %d %d\n",
                        &pegs_data.msge[imed], &pegs_data.mge[imed],
                        &pegs_data.mseke[imed], &pegs_data.meke[imed],
@@ -2379,7 +2364,7 @@ int readPegsFile(int *media_found) {
             }
             
             for (int i = 0; i<7; i++) {
-                fgets(buffer, 100, fp);
+                fgets(buffer, BUFFER_SIZE, fp);
             }
             double del1, del2, del3, del4, del5;
             if (sscanf(buffer, "%lf %lf %lf %lf %lf ",
@@ -2487,7 +2472,7 @@ void initPhotonData() {
     
     /* Get file path from input data */
     char photon_xsection[128];
-    char buffer[128];
+    char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "photon xsection") != 1) {
         printf("Can not find 'photon xsection' key on input file.\n");
@@ -2769,6 +2754,7 @@ void listPhoton() {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
     }
+
     fprintf(fp, "Listing photon data: \n");
     for (int i=0; i<geometry.nmed; i++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
@@ -3727,37 +3713,10 @@ void photon() {
         double gbr1 = pwlfEval(imed*MXGE + lgle, gle,
                                photon_data.gbr11, photon_data.gbr10);
         if (rnno <= gbr1 && eig>2.0*RM) {
-            /* It was pair production */
-            // printf("*** Before Pair ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Photon ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
+            /* It was pair production */           
             pair(imed);
-            np = stack.np;
-            // printf("*** After Pair ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Electron2 ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
-            // printf("*** Electron1 ***\n");
-            // printf("e[n] = %f\n", stack.e[np-1]);
-            // printf("x[n] = %f\n", stack.x[np-1]);
-            // printf("y[n] = %f\n", stack.y[np-1]);
-            // printf("z[n] = %f\n", stack.z[np-1]);
-            // printf("u[n] = %f\n", stack.u[np-1]);
-            // printf("v[n] = %f\n", stack.v[np-1]);
-            // printf("w[n] = %f\n", stack.w[np-1]);            
+
+            np = stack.np;                     
             
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
@@ -3770,65 +3729,19 @@ void photon() {
                                photon_data.gbr21, photon_data.gbr20);
         
         if (rnno < gbr2) {
-            /* It was compton */
-            // printf("*** Before Compton ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Photon ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
+            /* It was compton */            
             compton();            
             np = stack.np;
-            // printf("*** After Compton ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Photon ***\n");
-            // printf("e[n-1] = %f\n", stack.e[np-1]);
-            // printf("x[n-1] = %f\n", stack.x[np-1]);
-            // printf("y[n-1] = %f\n", stack.y[np-1]);
-            // printf("z[n-1] = %f\n", stack.z[np-1]);
-            // printf("u[n-1] = %f\n", stack.u[np-1]);
-            // printf("v[n-1] = %f\n", stack.v[np-1]);
-            // printf("w[n-1] = %f\n", stack.w[np-1]);
-            // printf("*** Electron ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
+            
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
             }
         }
         else {
-            /* It was photoelectric */
-            // printf("*** Before Photo ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Photon ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
+            /* It was photoelectric */            
             photo();
-            // printf("*** After Photo ***\n");
-            // printf("np = %d\n", np);
-            // printf("*** Electron ***\n");
-            // printf("e[n] = %f\n", stack.e[np]);
-            // printf("x[n] = %f\n", stack.x[np]);
-            // printf("y[n] = %f\n", stack.y[np]);
-            // printf("z[n] = %f\n", stack.z[np]);
-            // printf("u[n] = %f\n", stack.u[np]);
-            // printf("v[n] = %f\n", stack.v[np]);
-            // printf("w[n] = %f\n", stack.w[np]);
+            
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
