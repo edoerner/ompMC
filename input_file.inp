@@ -2,19 +2,19 @@
 mono energy = 20.0
 spectrum file = ./spectra/mohan6.spectrum
 charge = 0
-collimator bounds = 22.5 27.5 22.5 27.5
+collimator bounds = -2.5 2.5 -2.5 2.5
 ssd = 90.0
 # end source definition
                               
 # start MC control          
-ncase  = 1000000
+ncase  = 10000000
 nbatch = 10
 rng seeds = 97 33
 # stop MC control           
                               
 # start geometry
 method of input = phantom
-phantom file = ./phantoms/TG119.egsphant
+phantom file = ./phantoms/WATER.egsphant
 # stop geometry         
                               
 # start MC transport

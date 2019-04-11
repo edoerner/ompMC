@@ -1547,15 +1547,12 @@ void selectAzimuthalAngle(double *costhe, double *sinthe) {
 
 void uphi21(struct Uphi *uphi,
             double costhe, double sinthe) {
+
+    int np = stack.np;
+
     /* This section is used if costhe and sinthe are already known. Phi
      is selected uniformly over the interval (0,2Pi) */
-    int np = stack.np;
-    /*double r1 = setRandom();
-    double phi = 2.0f*M_PI*r1;*/
     selectAzimuthalAngle(&(uphi->cosphi), &(uphi->sinphi));
-
-    /*uphi->sinphi = sin(phi);
-    uphi->cosphi = cos(phi);*/
     
     /* The following section is used for the second of two particles when it is
      known that there is a relationship in their corrections. In this version
@@ -6549,11 +6546,8 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
 	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
 		lambda,	chia2,	&w1, &sint1, &m_scat, &spin_r);
 
-	double cphi1;   // sine and cosine of the first azimuthal angle 
-    double sphi1;
-	double phi = 2.0*M_PI*setRandom();
-    cphi1 = cos(phi);
-    sphi1 = sin(phi);
+	double cphi1; double sphi1;  // sine and cosine of the first azimuthal angle 
+    selectAzimuthalAngle(&cphi1, &sphi1);
     
     /* Sample second substep scattering angle */
 	double w2;      // cosine of the second substep polar scattering angle
@@ -6561,11 +6555,8 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
 	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
 		lambda,	chia2,	&w2, &sint2, &m_scat, &spin_r);
 
-	double cphi2;   // sine and cosine of the second azimuthal angle 
-    double sphi2;
-	phi = 2.0*M_PI*setRandom();
-    cphi2 = cos(phi);
-	sphi2 = sin(phi);
+	double cphi2; double sphi2; // sine and cosine of the second azimuthal angle 
+    selectAzimuthalAngle(&cphi2, &sphi2);
 
     /* Final direction of motion, relative to z-axis */
 	double u2 = sint2*cphi2;
@@ -6949,9 +6940,8 @@ void rannih() {
     
     /* Azimuthal angle selection */
     rnno = setRandom();
-    double phi = 2.0*M_PI*rnno;
-    double sinphi = sin(phi);
-    double cosphi = cos(phi);
+    double cosphi; double sinphi;
+    selectAzimuthalAngle(&cosphi, &sinphi);
     
     /* First photon */
     stack.e[np] = RM;
@@ -7118,9 +7108,8 @@ void brems() {
     double sinthe = sqrt(fmax(0.0 ,(1.0 - pow(costhe, 2.0))));
 
     /* Azimuthal angle sampling */
-    double phi = 2.0*setRandom()*M_PI;
-    double cphi = cos(phi);
-    double sphi = sin(phi);
+    double cphi; double sphi;
+    selectAzimuthalAngle(&cphi, &sphi);
 
     if( sinpsi >= 1.0E-10 ) {
         double us = sinthe*cphi;
@@ -7362,10 +7351,8 @@ void annih() {
 
 	/* The following variables are for azimuthal angle sampling */
 	double sphi; double cphi;   // sine and cosine of the azimuthal angle
-	double phi = 2.0*M_PI*setRandom();
-	sphi = sin(phi);
-    cphi = cos(phi);
-
+    selectAzimuthalAngle(&cphi, &sphi);
+    
 	double us; double vs; // for inline rotations
 	if(sinpsi >= 1.0E-10) { 
 		us = sinthe*cphi;
