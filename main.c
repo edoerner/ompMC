@@ -32,8 +32,9 @@
 /******************************************************************************/
 /* Parsing program options with getopt long
  http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
-
+#ifndef MATLAB_COMPILE_MEX
 #include <getopt.h>
+#endif
 
 /* Flag set by ‘--verbose’. */
 static int verbose_flag;
@@ -48,6 +49,7 @@ static int verbose_flag;
 #include <ctype.h>
 
 #define BUFFER_SIZE 256
+
 /* Parse a configuration file */
 void parseInputFile(char *file_name);
 
@@ -147,6 +149,8 @@ void initScore(void);
 void cleanScore(void);
 void ausgab(double edep);
 void accumEndep(void);
+
+void accumulateResults(int iout, int nhist, int nbatch);
 void outputResults(char *output_file, int iout, int nhist, int nbatch);
 
 /******************************************************************************/
@@ -173,6 +177,7 @@ struct Stack {
     double *wt;     // particle weight
 };
 struct Stack stack;
+#pragma omp threadprivate(stack)
 
 void initStack(void);
 void initHistory(void);
@@ -209,6 +214,7 @@ struct Random {
     double twom24;
 };
 struct Random rng;
+#pragma omp threadprivate(rng)
 
 void initRandom(void);
 void getRandom(void);
@@ -537,6 +543,7 @@ double hownear(void);
 
 /******************************************************************************/
 /* ompMC main function */
+#ifndef MATLAB_COMPILE_MEX
 int main (int argc, char **argv) {
     
     /* Execution time measurement */
@@ -636,14 +643,19 @@ int main (int argc, char **argv) {
     
     /* Preparation of scoring struct */
     initScore();
-    
-    /* Initialize random number generator */
-    initRandom();
-    
-    /* Initialize particle stack */
-    initStack();
-    
-    /* In verbose mode, list interaction data to output folder */
+
+    #pragma omp parallel
+    {
+      /* Initialize random number generator */
+      initRandom();
+
+      /* Initialize particle stack */
+
+      initStack();
+    }
+
+
+        /* In verbose mode, list interaction data to output folder */
     if (verbose_flag) {
         listRayleigh();
         listPair();
@@ -700,8 +712,9 @@ int main (int argc, char **argv) {
                    (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
             
         }
-        
-        for (int ihist=0; ihist<nperbatch; ihist++) {
+        int ihist;
+        #pragma omp parallel for schedule(dynamic)
+        for (ihist=0; ihist<nperbatch; ihist++) {
             /* Initialize particle history */
             initHistory();
             
@@ -735,22 +748,23 @@ int main (int argc, char **argv) {
     outputResults(output_file, iout, nperbatch, nbatch);
     
     /* Cleaning */
-    cleanElectron();
-    cleanPair();
     cleanPhantom();
     cleanPhoton();
-    cleanMscat();
-    cleanRandom();
     cleanRayleigh();
+    cleanPair();
+    cleanElectron();
+    cleanMscat();
+    cleanSpin();
     cleanRegions();
     cleanScore();
     cleanSource();
-    cleanSpin();
-    cleanStack();
-
+    #pragma omp parallel
+    {
+      cleanRandom();
+      cleanStack();
+    }
     free(input_file);
     free(output_file);
-
     /* Get total execution time */
     tend = clock();
     printf("Total execution time : %8.5f seconds\n",
@@ -758,7 +772,7 @@ int main (int argc, char **argv) {
     
     exit (EXIT_SUCCESS);
 }
-
+#endif
 void parseInputFile(char *input_file) {
     
     char buf[BUFFER_SIZE];      // support lines up to 120 characters
@@ -971,9 +985,10 @@ void cleanPhantom() {
     free(geometry.xbounds);
     free(geometry.ybounds);
     free(geometry.zbounds);
+    #ifndef MATLAB_COMPILE_MEX
     free(geometry.med_indices);
     free(geometry.med_densities);
-    
+    #endif
     return;
 }
 
@@ -1656,7 +1671,10 @@ void accumEndep() {
     /* Accumulate endep and endep squared for statistical analysis */
     double edep = 0.0;
     
-    for (int irl=0; irl<gridsize + 1; irl++) {
+    int irl = 0;
+    
+    #pragma omp parallel for firstprivate(edep)
+    for (irl=0; irl<gridsize + 1; irl++) {
         edep = score.endep[irl];
         
         score.accum_endep[irl] += edep;
@@ -1669,26 +1687,20 @@ void accumEndep() {
     return;
 }
 
-void outputResults(char *output_file, int iout, int nhist, int nbatch) {
-    
+void accumulateResults(int iout, int nhist, int nbatch)
+{
     int irl;
     int imax = geometry.isize;
     int ijmax = geometry.isize*geometry.jsize;
     double endep, endep2, unc_endep;
 
     /* Calculate incident fluence */
-    double inc_fluence = 0.0;
-    double beam_area = source.xsize*source.ysize;
+    double inc_fluence = (double)nhist;
     double mass;
-    
-    if (beam_area == 0.0) {
-        inc_fluence = (double)nhist;
-    }
-    else {
-        inc_fluence = (double)nhist/beam_area;
-    }
-    
-    for (int iz=0; iz<geometry.ksize; iz++) {
+    int iz;
+
+    #pragma omp parallel for private(irl,endep,endep2,unc_endep,mass)
+    for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
                 irl = 1 + ix + iy*imax + iz*ijmax;
@@ -1738,9 +1750,10 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
             }
         }
     }
-
+    
     /* Zero dose in air */
-    for (int iz=0; iz<geometry.ksize; iz++) {
+    #pragma omp parallel for private(irl)
+    for (iz=0; iz<geometry.ksize; iz++) {
         for (int iy=0; iy<geometry.jsize; iy++) {
             for (int ix=0; ix<geometry.isize; ix++) {
                 irl = 1 + ix + iy*imax + iz*ijmax;
@@ -1753,6 +1766,18 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
         }
     }
     
+    return;
+}
+
+void outputResults(char *output_file, int iout, int nhist, int nbatch) {
+    
+    //Accumulate the results
+    accumulateResults(iout, nhist,nbatch);
+    
+    int irl;
+    int imax = geometry.isize;
+    int ijmax = geometry.isize*geometry.jsize;
+    
     /* Output to file */
     char extension[15];
     if (iout) {
@@ -1761,9 +1786,20 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
         strcpy(extension, ".3denergy");
     }
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
     /* Make space for the new string */
-    char* file_name = malloc(strlen(output_file) + strlen(extension) + 1);
-    strcpy(file_name, output_file);
+    char* file_name = malloc(strlen(output_folder) + strlen(output_file) + strlen(extension) + 1);
+    strcpy(file_name, output_folder);
+    strcat(file_name, output_file); /* add the file name */
     strcat(file_name, extension); /* add the extension */
     
     FILE *fp;
@@ -1811,7 +1847,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
         }
     }
     fprintf(fp, "\n");
-
+    
     /* Cleaning */
     fclose(fp);
     free(file_name);
@@ -1826,6 +1862,7 @@ void ausgab(double edep) {
     double endep = stack.wt[np]*edep;
         
     /* Deposit particle energy on spot */
+    #pragma omp atomic
     score.endep[irl] += endep;
     
     return;
@@ -1850,12 +1887,50 @@ void initStack() {
     return;
 }
 
+
 void initHistory() {
+
+    double rnno1;
+    double rnno2;
+    
+    int ijmax = geometry.isize*geometry.jsize;
+    int imax = geometry.isize;
     
     /* Initialize first particle of the stack from source data */
     stack.np = 0;
     stack.iq[stack.np] = source.charge;
     
+    /* Get primary particle energy */
+    double ein = 0.0;
+    if (source.spectrum) {
+        /* Sample initial energy from spectrum data */
+        rnno1 = setRandom();
+        rnno2 = setRandom();
+        
+        /* Sample bin number in order to select particle energy */
+        int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
+        ein = source.cdfinv1[k] + rnno2*source.cdfinv2[k];
+    }
+    else {
+        /* Monoenergetic source */
+        ein = source.energy;
+    }
+    
+    /* Check if the particle is an electron, in such a case add electron
+     rest mass energy */
+    if (stack.iq[stack.np] != 0) {
+        /* Electron or positron */
+        stack.e[stack.np] = ein + RM;
+    }
+    else {
+        /* Photon */
+        stack.e[stack.np] = ein;
+    }
+    
+    /* Accumulate sampled kinetic energy for fraction of deposited energy
+     calculations */
+    score.ensrc += ein;
+           
     /* Set particle position. First obtain a random position in the rectangle
      defined by the collimator */
     double rxyz = 0.0;
@@ -1918,38 +1993,7 @@ void initHistory() {
     /* Set statistical weight and distance to closest boundary*/
     stack.wt[stack.np] = 1.0;
     stack.dnear[stack.np] = 0.0;
-
-    /* Get primary particle energy */
-    double ein = 0.0;
-    if (source.spectrum) {
-        /* Sample initial energy from spectrum data */
-        double rnno1 = setRandom();
-        double rnno2 = setRandom();
         
-        /* Sample bin number in order to select particle energy */
-        int k = (int)fmin(source.deltak*rnno1, source.deltak - 1.0);
-        ein = source.cdfinv1[k] + rnno2*source.cdfinv2[k];
-    }
-    else {
-        /* Monoenergetic source */
-        ein = source.energy;
-    }
-    
-    /* Check if the particle is an electron, in such a case add electron
-     rest mass energy */
-    if (stack.iq[stack.np] != 0) {
-        /* Electron or positron */
-        stack.e[stack.np] = ein + RM;
-    }
-    else {
-        /* Photon */
-        stack.e[stack.np] = ein;
-    }
-    
-    /* Accumulate sampled kinetic energy for fraction of deposited energy
-     calculations */
-    score.ensrc += ein;
-    
     return;
 }
 
@@ -2471,8 +2515,8 @@ void initPhotonData() {
     char photon_xsection[128];
     char buffer[BUFFER_SIZE];
     
-    if (getInputValue(buffer, "photon xsection") != 1) {
-        printf("Can not find 'photon xsection' key on input file.\n");
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     removeSpaces(photon_xsection, buffer);
@@ -2485,7 +2529,7 @@ void initPhotonData() {
     
     char xsection_file[256];
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_photo.data");
+    strcat(xsection_file, "xcom_photo.data");
     readXsecData(xsection_file, photo_ndat, photo_xsec_data0, photo_xsec_data1);
     
     int *rayleigh_ndat = (int*) malloc(MXELEMENT*sizeof(int));
@@ -2493,7 +2537,7 @@ void initPhotonData() {
     double **rayleigh_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_rayleigh.data");
+    strcat(xsection_file, "xcom_rayleigh.data");
     readXsecData(xsection_file, rayleigh_ndat, rayleigh_xsec_data0,
                  rayleigh_xsec_data1);
     
@@ -2502,7 +2546,7 @@ void initPhotonData() {
     double **pair_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_pair.data");
+    strcat(xsection_file, "xcom_pair.data");
     readXsecData(xsection_file, pair_ndat, pair_xsec_data0, pair_xsec_data1);
     
     /* We do not consider bound compton scattering, therefore there is no
@@ -2513,7 +2557,7 @@ void initPhotonData() {
     double **triplet_xsec_data1 = (double**) malloc(MXELEMENT*sizeof(double*));
     
     strcpy(xsection_file, photon_xsection);
-    strcat(xsection_file, "_triplet.data");
+    strcat(xsection_file, "xcom_triplet.data");
     readXsecData(xsection_file, triplet_ndat, triplet_xsec_data0,
                  triplet_xsec_data1);
     
@@ -2742,11 +2786,23 @@ void cleanPhoton() {
 }
 
 void listPhoton() {
+
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
     
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "photon_data.lst");    
+
     /* List photon data to output file */
     FILE *fp;
-    char *file_name = "./output/photon_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -3184,15 +3240,27 @@ void initRayleighData(void) {
 
 void readFfData(double *xval, double **aff) {
     
-    FILE *fp;
-    char file_name[25] = "./pegs4/pgs4form.dat";
+    /* Get file path from input data */
+    char pgs4form_file[128];
+    char buffer[BUFFER_SIZE];
     
-    /* Open file containing form factors */
-    if ((fp = fopen(file_name, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file_name);
+    if (getInputValue(buffer, "pgs4form file") != 1) {
+        printf("Can not find 'pgs4form file' key on input file.\n");
         exit(EXIT_FAILURE);
     }
+    removeSpaces(pgs4form_file, buffer);
     
+    /* Open pgs4form file */
+    FILE *fp;
+    
+    if ((fp = fopen(pgs4form_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", pgs4form_file);
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Path to pgs4form file : %s\n", pgs4form_file);
+
+
     int ok = fp > 0; // "boolean" variable, ok = 0, false; ok = 1, true
     
     if (ok == 1) {
@@ -3225,7 +3293,8 @@ void readFfData(double *xval, double **aff) {
     }
     
     if (ok == 0) {
-        printf("Could not read atomic form factors file %s", file_name);
+        printf("Could not read atomic form factors file %s", 
+                pgs4form_file);
         exit(EXIT_FAILURE);
     }
     
@@ -3246,14 +3315,28 @@ void cleanRayleigh() {
 }
 
 void listRayleigh() {
+       
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "rayleigh_data.lst");
+    
     /* List rayleigh data to output file */
     FILE *fp;
-    char *file_name = "./output/rayleigh_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
     }
+
     fprintf(fp, "Listing rayleigh data: \n");
     for (int i=0; i<geometry.nmed; i++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[i]);
@@ -3502,10 +3585,22 @@ void cleanPair() {
 
 void listPair() {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "pair_data.lst");
+    
     /* List pair data to output file */
     FILE *fp;
-    char *file_name = "./output/pair_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -3713,8 +3808,7 @@ void photon() {
             /* It was pair production */           
             pair(imed);
 
-            np = stack.np;                     
-            
+            np = stack.np;                  
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
@@ -3727,9 +3821,9 @@ void photon() {
         
         if (rnno < gbr2) {
             /* It was compton */            
-            compton();            
-            np = stack.np;
-            
+            compton();      
+
+            np = stack.np;            
             if (stack.iq[np] != 0) {
                 /* Electron to be transported next */
                 return;
@@ -4498,11 +4592,23 @@ void cleanElectron() {
 }
 
 void listElectron(void) {
+
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "electron_data.lst");
     
     /* List electron data to output file */
     FILE *fp;
-    char *file_name = "./output/electron_data.lst";
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -4690,16 +4796,28 @@ void listElectron(void) {
 
 void readRutherfordMscat(int nmed) {
     
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char msnew_file[256];
+    strcpy(msnew_file, data_folder);
+    strcat(msnew_file, "msnew.data");
+
     /* Open multi-scattering file */
     FILE *fp;
-    char file[25] = "./data/msnew.data";
-    
-    if ((fp = fopen(file, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file);
+    if ((fp = fopen(msnew_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", msnew_file);
         exit(EXIT_FAILURE);
     }
     
-    printf("Path to multi-scattering data file : %s\n", file);
+    printf("Path to multi-scattering data file : %s\n", msnew_file);
     
     /* Allocate memory for MS data */
     mscat_data.ums_array =
@@ -4711,7 +4829,7 @@ void readRutherfordMscat(int nmed) {
     mscat_data.ims_array =
         malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(int));
     
-    printf("Reading multi-scattering data from file : %s\n", file);
+    printf("Reading multi-scattering data from file : %s\n", msnew_file);
     
     for (int i=0; i<=MXL_MS; i++) {
         for (int j=0; j <= MXQ_MS; j++) {
@@ -4769,11 +4887,22 @@ void cleanMscat() {
 
 void listMscat() {
     
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "mscat_data.lst");
+    
     /* List mscat data to output file */
     FILE *fp;
-    char *file_name = "./output/mscat_data.lst";
-    int idx;
-    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -4782,6 +4911,8 @@ void listMscat() {
     fprintf(fp, "Listing multi-scattering data: \n");
     fprintf(fp, "dllambi = %f\n", mscat_data.dllambi);
     fprintf(fp, "dqmsi = %f\n", mscat_data.dqmsi);
+    
+    int idx;
     
     fprintf(fp, "\n");
     fprintf(fp, "ums_array = \n");
@@ -4839,16 +4970,28 @@ void listMscat() {
 
 void initSpinData(int nmed) {
     
-    /* Open multi-scattering file */
-    FILE *fp;
-    char file[25] = "./data/spinms.data";
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[BUFFER_SIZE];
     
-    if ((fp = fopen(file, "r")) == NULL) {
-        printf("Unable to open file: %s\n", file);
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char spinms_file[256];
+    strcpy(spinms_file, data_folder);
+    strcat(spinms_file, "spinms.data");
+    
+    /* Open spinms file */
+    FILE *fp;
+    if ((fp = fopen(spinms_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", spinms_file);
         exit(EXIT_FAILURE);
     }
     
-    printf("Path to spin data file : %s\n", file);
+    printf("Path to spin data file : %s\n", spinms_file);
     
     /* Get length of file to create data buffers to reading */
     fseek(fp, 0, SEEK_END);
@@ -5407,11 +5550,22 @@ void cleanSpin() {
 
 void listSpin() {
     
-    /* List mscat data to output file */
-    FILE *fp;
-    char *file_name = "./output/spin_data.lst";
-    int idx;
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
     
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "spin_data.lst");
+    
+    /* List spin data to output file */
+    FILE *fp;    
     if ((fp = fopen(file_name, "w")) == NULL) {
         printf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
@@ -5425,6 +5579,8 @@ void listSpin() {
     fprintf(fp, "dqq1i = %f\n", spin_data.dqq1i);
     fprintf(fp, "\n");
     
+    int idx;
+
     for (int imed=0; imed<geometry.nmed; imed++) {
         fprintf(fp, "For medium %s: \n", geometry.med_names[imed]);
         fprintf(fp, "spin_rej = \n");
