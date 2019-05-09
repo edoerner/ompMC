@@ -19,6 +19,10 @@
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *****************************************************************************/
 
+#ifndef M_PI
+    const double M_PI = 3.14159265358979323846;
+#endif
+
 /* Flag set by '--verbose' argument */
 extern int verbose_flag;
 
@@ -102,7 +106,7 @@ extern void cleanRandom(void);
 /******************************************************************************/
 
 /*******************************************************************************
-/* Definitions for Monte Carlo simulation of particle transport 
+* Definitions for Monte Carlo simulation of particle transport 
 *******************************************************************************/
 
 /* Physical constants */
@@ -159,12 +163,15 @@ extern void transferProperties(int npnew, int npold);
 extern void selectAzimuthalAngle(double *costhe, double *sinthe);
 extern void uphi21(struct Uphi *uphi, double costhe, double sinthe);
 extern void uphi32(struct Uphi *uphi, double costhe, double sinthe);
+extern int pwlfInterval(int idx, double lvar, double *coef1, double *coef0);
+extern double pwlfEval(int idx, double lvar, double *coef1, double *coef0);
 
 /*******************************************************************************
-/* Photon physical processes definitions
+* Photon physical processes definitions
 *******************************************************************************/
 
-const int MXGE = 2000;  // gamma mapped energy intervals
+const int MXGE = 2000;          // gamma mapped energy intervals
+const double SGMFP = 1.0E-05;    // smalles gamma mean free path
 
 struct Photon {
     double *ge0, *ge1;
@@ -211,6 +218,7 @@ extern void readFfData(double *xval, double **aff);
 extern void initRayleighData(void);
 extern void cleanRayleigh(void);
 extern void listRayleigh(void);
+extern void rayleigh(int imed, double eig, double gle, int lgle);
 
 /* Pair production definitions */
 const double FSC = 0.00729735255664;    // fine structure constant
@@ -236,10 +244,23 @@ extern double xsif(double zi, double fc);
 extern void initPairData(void);
 extern void cleanPair(void);
 extern void listPair(void);
+extern double setPairRejectionFunction(int imed, double xi, double esedei,
+                                double eseder, double tteig);
+extern void pair(int imed);
+
+/* Compton scattering definitions */
+extern void compton(void);
+
+/* Photo electric effect definitions */
+extern void photo(void);
 
 /*******************************************************************************
-/* Electron physical processes definitions
+* Electron physical processes definitions
 *******************************************************************************/
+const double XIMAX = 0.5;
+const double ESTEPE = 0.25;
+const double EPSEMFP = 1.0E-5;  // smallest electron mean free path
+const int SKIN_DEPTH_FOR_BCA = 3;
 
 struct Electron {
     double *esig0;
@@ -298,6 +319,30 @@ struct Electron {
 };
 extern struct Electron electron_data;
 
+/* Screened Rutherford MS data */
+const int MXL_MS = 63;
+const int MXQ_MS = 7;
+const int MXU_MS = 31;
+const double LAMBMIN_MS = 1.0;
+const double LAMBMAX_MS = 1.0E5;
+const double QMIN_MS = 1.0E-3;
+const double QMAX_MS = 0.5;
+
+struct Mscat {
+
+    double *ums_array;
+    double *fms_array;
+    double *wms_array;
+    int *ims_array;
+    
+    double dllambi;
+    double dqmsi;
+};
+extern struct Mscat mscat_data;
+
+extern void readRutherfordMscat(int nmed);
+void initMscatData();
+
 extern void shower(void);
 
 /* Media definitions */
@@ -351,6 +396,20 @@ extern struct Pegs pegs_data;
 
 extern void initMediaData(void);
 extern int readPegsFile(int *media_found);
+
+/* Region-by-region data definition */
+const int VACUUM = -1;
+
+struct Region {
+    int *med;
+    double *rhof;
+    double *pcut;
+    double *ecut;
+};
+extern struct Region region;
+
+extern void initRegions(void);  // this function must be defined in user code
+extern void cleanRegions(void);
 
 
 /******************************************************************************/

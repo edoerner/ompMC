@@ -20,6 +20,7 @@
 *****************************************************************************/
 
 #include "ompmc.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -295,7 +296,7 @@ void cleanRandom() {
 /******************************************************************************/
 
 /*******************************************************************************
-/* Definitions for Monte Carlo simulation of particle transport 
+* Definitions for Monte Carlo simulation of particle transport 
 *******************************************************************************/
 
 /* Common functions and definitions */
@@ -457,8 +458,18 @@ void uphi32(struct Uphi *uphi,
     return;
 }
 
+int pwlfInterval(int idx, double lvar, double *coef1, double *coef0) {
+    
+    return (int)(lvar*coef1[idx] + coef0[idx]);
+}
+
+double pwlfEval(int idx, double lvar, double *coef1, double *coef0) {
+    
+    return lvar*coef1[idx] + coef0[idx];
+}
+
 /*******************************************************************************
-/* Photon physical processes definitions
+* Photon physical processes definitions
 *******************************************************************************/
 
 struct Photon photon_data;
@@ -1351,6 +1362,51 @@ void listRayleigh() {
     fclose(fp);
 }
 
+void rayleigh(int imed, double eig, double gle, int lgle) {
+    
+    int ibin, ib;
+    double xv, costhe, csqthe, sinthe;
+    double rnno0, rnno1;
+    double pmax = pwlfEval(imed*MXGE + lgle, gle,
+                           rayleigh_data.pmax1, rayleigh_data.pmax0);
+    double xmax = HC_INVERSE*eig;
+    double dwi = (double)RAYCDFSIZE - 1.0;
+    
+    do {
+        rnno1 = setRandom();
+        
+        do {
+            rnno0 = setRandom();
+            rnno0 *= pmax;
+            
+            /* For the following indexes the C convention must be used */
+            ibin = (int)rnno0*dwi;
+            ib = rayleigh_data.i_array[ibin] - 1;
+            
+            if((rayleigh_data.i_array[ibin+1] - 1) > ib) {
+                while(rnno0 >= rayleigh_data.fcum[ib+1]) {
+                    ib++;
+                }
+            }
+            
+            rnno0 = (rnno0 - rayleigh_data.fcum[ib])*rayleigh_data.c_array[ib];
+            xv = rayleigh_data.xgrid[ib]*exp(log(1.0 + rnno0)*
+                                             rayleigh_data.b_array[ib]);
+        } while(xv >= xmax);
+        
+        xv /= eig;
+        costhe = 1.0 - TWICE_HC2*pow(xv, 2.0);
+        csqthe = pow(costhe, 2.0);
+    } while(2.0*rnno1 >= (1.0 + csqthe));
+    
+    sinthe = sqrt(1.0 - csqthe);
+    
+    struct Uphi uphi;
+    uphi21(&uphi, costhe, sinthe);
+    
+    return;
+}
+
 /* Pair production definitions */
 
 double fcoulc(double zi) {
@@ -1623,10 +1679,842 @@ void listPair() {
     return;
 }
 
+double setPairRejectionFunction(int imed, double xi, double esedei,
+                                double eseder, double tteig) {
+    
+    double rej = 2.0 + 3.0*(esedei + eseder) - 4.0*(esedei + eseder +
+        1.0 - 4.0*pow((xi - 0.5), 2.0))*(1.0 +
+            0.25*log((pow(((1.0 + eseder)*(1.0 + esedei)/(2.0*tteig)),2.0)) +
+                pair_data.zbrang[imed]*pow(xi, 2.0)));
+    
+    return rej;
+}
+
+void pair(int imed) {
+    
+    int np = stack.np;
+    double eig = stack.e[np];   /* energy of incident photon */
+    
+    double ese1, ese2;          /* energy of "electrons" */
+    int iq1, iq2;               /* charge of "electrons" */
+    int l, l1;                  /* flags for high/low energy distributions */
+    
+    if (eig <= 2.1) {
+        /* Use low energy pair production aproximation. It corresponds to an
+         uniform energy distribution */
+        double rnno0 = setRandom();
+        double rnno1 = setRandom();
+        
+        ese2 = RM + 0.5*rnno0*(eig - 2.0*RM);
+        ese1 = eig - ese2;
+        
+        if (rnno1 < 0.5) {
+            iq1 = -1;
+            iq2 = 1;
+        } else {
+            iq1 = 1;
+            iq2 = -1;
+        }
+        
+    } else {
+        /* Must sample. Now decide whether to use Bethe-Heitler or BH
+         Coulomb corrected */
+        double Amax;    /* maximum of the screening function used with
+                         (br-1/2)^2 */
+        double Bmax;    /* maximum of the screening function used with the
+                         uniform part */
+        double delta;   /* scaled momentum transfer */
+        double aux;
+        
+        if (eig < 50.0) {
+            /* Use BH without Coulomb correction */
+            l = 4;
+            l1 = l + 1;
+            
+            /* Find the actual rejection maximum for this photon energy */
+            delta = 4.0*pair_data.delcm[imed]/eig;
+            if(delta < 1.0) {
+                Amax = pair_data.dl1[imed*8+l] +
+                    delta*(pair_data.dl2[imed*8+l] +
+                        delta*pair_data.dl3[imed*8+l]);
+                Bmax = pair_data.dl1[imed*8+l1] +
+                    delta*(pair_data.dl2[imed*8+l1] +
+                        delta*pair_data.dl3[imed*8+l1]);
+            }
+            else {
+                aux = log(delta + pair_data.dl6[imed*8+l]);
+                Amax = pair_data.dl4[imed*8+l] + pair_data.dl5[imed*8+l]*aux;
+                Bmax = pair_data.dl4[imed*8+l1] + pair_data.dl5[imed*8+l1]*aux;
+            }
+            /* and then calculate the probability for sampling from (br-1/2)^2*/
+            aux = 1.0 - 2.0*RM/eig;
+            aux = pow(aux, 2.0);
+            aux *= Amax/3.0;
+            aux /= (Bmax + aux);
+
+        } else {
+            /* Use BH Coulomb-corrected */
+            l = 6;
+            
+            /* The absolute maxima are close to the actual maxima
+             at high energies */
+            Amax = pair_data.dl1[imed*8+l];
+            Bmax = pair_data.dl1[imed*8+l+1];
+            aux = pair_data.bpar1[imed]*(1.0 - pair_data.bpar0[imed]*RM/eig);
+
+        }
+        
+        double eavail = eig - 2.0*RM;    /* energy available after
+                                         pair production */
+        double rejf;     /* screening rejection function */
+        double rejmax;   /* the maximum of rejmax */
+        double rnno4;
+
+        do {
+            double br; /* fraction of the available energy (eig-2*RM) going to
+                       the lower energy electron */
+            double rnno0 = setRandom();
+            double rnno1 = setRandom();
+            rnno4 = setRandom();
+            
+            if(rnno0 > aux) {
+                /* Use the uniform part of the distribution */
+                br = 0.5*rnno1;
+                rejmax = Bmax;
+                l1 = l + 1;
+            }
+            else {
+                /* Use the (br-1/2)^2 part */
+                double rnno2 = setRandom();
+                double rnno3 = setRandom();
+                br = 0.5*(1.0 - fmax(fmax(rnno1, rnno2), rnno3));
+                rejmax = Amax;
+                l1 = l;
+            }
+            
+            ese2 = br*eavail + RM;
+            ese1 = eig - ese2;
+            delta = (eig*pair_data.delcm[imed])/(ese2*ese1);
+            if(delta < 1.0) {
+                rejf = pair_data.dl1[imed*8+l1] +
+                    delta*(pair_data.dl2[imed*8+l1] +
+                           delta*pair_data.dl3[imed*8+l1]);
+            }
+            else {
+                rejf = pair_data.dl4[imed*8+l1] +
+                    pair_data.dl5[imed*8+l1]*
+                        log(delta + pair_data.dl6[imed*8+l1]);
+            }
+            
+        } while(rnno4*rejmax > rejf);
+        
+        ese1 = eig - ese2;
+        rnno4 = setRandom();
+        
+        if (rnno4 < 0.5) {
+            iq1 = -1;
+            iq2 = 1;
+        } else {
+            iq1 = 1;
+            iq2 = -1;
+        }
+    }
+    
+    /* Energy going to lower secondary has now been determined */
+    stack.e[np] = ese1;
+    stack.e[np+1] = ese2;
+    
+    /* Set pair angle and direction of charged particles. The angle is selected
+     from the leading term of the angular distribution */
+    double ese;
+    double sinthe;
+    double costhe;
+    struct Uphi uphi;
+
+    for(int j=0; j<2; j++) {
+        /* This loop is executed twice, once for each generated particle. The
+         following corresponds to iprdst == 2 (MOTZ, OLSEN AND KOCH 1969) */
+        if(j == 0) {
+            ese = ese1;
+        }
+        else {
+            ese = ese2;
+        }
+        
+        double tteig = eig/RM;  /* initial photon energy in electron RM units */
+        double ttese = ese/RM;  /* final electron energy in electron RM units */
+        
+        /* Ratio of particle's energies (r in PIRS0287) */
+        double esedei = ttese/(tteig - ttese);
+        double eseder = 1.0/esedei;
+        
+        /* Determine the normalization */
+        double ximin = 1.0/(1.0 + pow((M_PI*ttese), 2.0));
+        
+        /* Set pair rejection function eq. 4 PIRS 0287 */
+        double rejmin = setPairRejectionFunction(imed, ximin, esedei,
+                                                 eseder, tteig);
+        
+        double ya = pow((2.0/tteig), 2.0);
+        double xitry = fmax(0.01, fmax(ximin, fmin(0.5,
+            sqrt(ya/pair_data.zbrang[imed]))));
+        double galpha = 1.0 + 0.25*log(ya +
+            pair_data.zbrang[imed]*pow(xitry, 2.0));
+        double gbeta = 0.5*pair_data.zbrang[imed]*xitry/(ya +
+            pair_data.zbrang[imed]*pow(xitry, 2.0));
+        galpha -= gbeta*(xitry - 0.5);
+        double ximid = galpha/(3.0*gbeta);
+        
+        if (galpha >= 0.0) {
+            ximid = 0.5 - ximid + sqrt(pow(ximid, 2.0) + 0.25);
+        } else{
+            ximid = 0.5 - ximid - sqrt(pow(ximid, 2.0) + 0.25);
+        }
+        
+        ximid = fmax(0.01, fmax(ximin, fmin(0.5, ximid)));
+        
+        /* Set pair rejection function eq. 4 PIRS 0287 */
+        double rejmid = setPairRejectionFunction(imed, ximid, esedei,
+                                                 eseder, tteig);
+        
+        /* Estimate maximum of the rejection function for later use by the
+         rejection technique */
+        double rejtop = 1.0*fmax(rejmin, rejmid);
+        
+        double theta;
+        double rejtst;
+        double rejfactor;
+        double rtest;
+        
+        do {
+            double xitst = setRandom();
+            
+            /* Set pair rejection function eq. 4 PIRS 0287 */
+            rejtst = setPairRejectionFunction(imed, xitst, esedei,
+                                              eseder, tteig);
+            
+            rtest = setRandom();
+            
+            /* Convert the successful candidate xitst to an angle */
+            theta = sqrt(1.0/xitst - 1.0)/ttese;
+            
+            /* Loop until rejection technique accepts xitst */
+            rejfactor = rejtst/rejtop;
+        } while((rtest > rejfactor) && (theta >= M_PI));
+        
+        sinthe = sin(theta);
+        costhe = cos(theta);
+        
+        if (j == 0) {
+            /* First Particle */            
+            uphi21(&uphi, costhe, sinthe);           
+        }
+        else {
+            /* Second Particle */
+            sinthe = -sinthe;
+            
+            /* Update stack index, it is needed by uphi32() */
+            np += 1;
+            stack.np = np;            
+            uphi32(&uphi, costhe, sinthe);
+        }
+    }
+
+    /* Assign charge to new particles. The stack index was already updated,
+     therefore the new particles correspond to np and np-1 indices */
+    stack.iq[np] = iq2;
+    stack.iq[np-1] = iq1;
+
+    return;
+}
+
+/* Compton scattering definitions */
+void compton() {
+    
+    int np = stack.np;
+    double eig = stack.e[np];
+    double ko = stack.e[np]/RM;
+    double broi = 1.0 + 2.0*ko;
+    double bro = 1.0/broi;
+    
+    /* Sampling of the Klein-Nishina scattering angle */
+    int first_time = 1; /* i.e. true */
+    double sinthe = 0.0;
+    double costhe = 0.0;
+    double br;  /* scattered photon energy fraction */
+    
+    double rnno1, rnno2, rnno3;
+    
+    double aux;
+    double rejf3;   /* rejection function */
+    double temp;    /* aux. variable for polar angle calculation */
+    
+    double alph1 = 0.0;    /* probability for the 1/br part */
+    double alph2 = 0.0;    /* probability for the br part */
+    double alpha = 0.0;
+    double rejmax = 0.0;   /* max. of rejf3 in the case of uniform sampling */
+
+    do {
+        if(ko > 2.0) {
+            /* At high energies the original EGS4 method is more efficient */
+            if (first_time){
+                alph1 = log(broi);
+                alph2 = ko*(broi + 1.0)*pow(bro, 2.0);
+                alpha = alph1 + alph2;
+            }
+            do {
+                rnno1 = setRandom();
+                rnno2 = setRandom();
+                
+                if(rnno1*alpha < alph1) {
+                    /* use 1/br part */
+                    br = exp(alph1*rnno2)*bro;
+                }
+                else {
+                    /* use the br part */
+                    br = sqrt(rnno2*pow(broi, 2.0) + (1.0 - rnno2))*bro;
+                }
+                
+                temp = (1.0 - br)/(ko*br);
+                sinthe = fmax(0.0, temp*(2.0 - temp));
+                aux = 1.0 + pow(br, 2.0);
+                rejf3 = aux - br*sinthe;
+                
+                rnno3 = setRandom();
+            } while(rnno3*aux > rejf3);
+        }
+        else {
+            /* At low energies it is faster to sample br uniformely */
+            if(first_time) {
+                rejmax = broi + bro;
+            }
+            do {
+                rnno1 = setRandom();
+                rnno2 = setRandom();
+                
+                br = bro + (1.0 - bro)*rnno1;
+                temp = (1.0 - br)/(ko*br);
+                sinthe = fmax(0.0, temp*(2.0 - temp));
+                
+                rejf3 = 1.0 + pow(br, 2.0) - br*sinthe;
+            } while(rnno2*br*rejmax > rejf3);
+        }
+        
+        first_time = 0; /* i.e. false */
+    } while((br < bro) || (br > 1));
+
+    costhe = 1.0 - temp;
+    sinthe = sqrt(sinthe);
+    
+    double esg = br*eig;            /* new energy of the photon */
+    double ese = eig - esg + RM;    /* energy of the electron */
+    stack.e[np] = esg;  /* change of energy */
+    
+    /* Adjust direction of photon */
+    struct Uphi uphi;    
+    uphi21(&uphi, costhe, sinthe);
+    
+    /* Adding new electron to stack. Update stack counter for uphi32() */
+    np += 1;
+    stack.np = np;
+    
+    /* Adjust direction of new electron */
+    aux = 1.0 + pow(br, 2.0) - 2.0*br*costhe;
+    if(aux > 1.0E-8) {
+        costhe = (1.0 - br*costhe)/sqrt(aux);
+        sinthe = (1.0 - costhe)*(1.0 + costhe);
+        if(sinthe > 0.0) {
+            sinthe = -sqrt(sinthe);
+        }
+        else {
+            sinthe = 0.0;
+        }
+    }
+    else {
+        costhe = 0.0;
+        sinthe = -1.0;
+    }
+    
+    uphi32(&uphi, costhe, sinthe);
+    stack.e[np] = ese;
+    stack.iq[np] = -1;
+    
+    return;
+}
+
+/* Photo electric effect definitions */
+void photo() {
+    
+    int np = stack.np;
+    
+    /* Set energy and charge of the new electron */
+    stack.e[np] += RM;
+    stack.iq[np] = -1;
+    
+    /* Now sample photo-electron direction */
+    double eelec = stack.e[np];
+    
+    if (eelec > region.ecut[stack.ir[np]]){
+        /* Velocity of electron in c units */
+        double beta = sqrt((eelec - RM)*(eelec + RM))/eelec;
+        
+        double costhe;
+        double sinthe;
+        double sinth2;
+        double gamma = eelec/RM;
+        double alpha = 0.5*gamma - 0.5 + 1.0/gamma; /* kinematic factor */
+        double ratio = beta/alpha;
+        double rnpht2;
+        double xi;
+        
+        do {
+            double rnpht = setRandom();
+            rnpht = 2.0*rnpht - 1.0;
+            if (ratio <= 0.2){
+                double fkappa = rnpht + 0.5*ratio*(1.0 - rnpht)*(1.0 + rnpht);
+                if (gamma < 100.0) {
+                    costhe = (beta + fkappa)/(1.0 + beta*fkappa);
+                }
+                else {
+                    if (fkappa > 0.0) {
+                        costhe = 1.0 - (1.0 - fkappa)*(gamma - 3.0)/
+                            (2.0*(1.0 + fkappa)*pow((gamma-1.0), 3.0));
+                    }
+                    else {
+                        costhe = (beta + fkappa)/(1.0 + beta*fkappa);
+                    }
+                }
+                xi = (1.0 + beta*fkappa)*pow(gamma, 2.0);
+            }
+            else {
+                xi = pow(gamma, 2.0)*(1.0 + alpha*(sqrt(1.0f
+                        + ratio*(2.0*rnpht + ratio)) - 1.0));
+                costhe = (1.0 - 1.0/xi)/beta;
+            }
+            sinth2 = fmax((1.0 - costhe)*(1.0 + costhe), 0.0);
+            rnpht2 = setRandom();
+        } while(rnpht2 > 0.5*(1.0 + gamma)*sinth2*xi/gamma);
+        
+        sinthe = sqrt(sinth2);
+        
+        struct Uphi uphi;
+        uphi21(&uphi, costhe, sinthe);
+    }
+    
+    return;
+}
+
 /*******************************************************************************
-/* Electron physical processes definitions
+* Electron physical processes definitions
 *******************************************************************************/
 struct Electron electron_data;
+
+struct Mscat mscat_data;
+
+void readRutherfordMscat(int nmed) {
+    
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char msnew_file[256];
+    strcpy(msnew_file, data_folder);
+    strcat(msnew_file, "msnew.data");
+
+    /* Open multi-scattering file */
+    FILE *fp;
+    if ((fp = fopen(msnew_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", msnew_file);
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Path to multi-scattering data file : %s\n", msnew_file);
+    
+    /* Allocate memory for MS data */
+    mscat_data.ums_array =
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
+    mscat_data.fms_array =
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
+    mscat_data.wms_array =
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(double));
+    mscat_data.ims_array =
+        malloc((MXL_MS + 1)*(MXQ_MS + 1)*(MXU_MS + 1)*sizeof(int));
+    
+    printf("Reading multi-scattering data from file : %s\n", msnew_file);
+    
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j <= MXQ_MS; j++) {
+            int k, idx;
+            
+            for (k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fscanf(fp, "%lf ", &mscat_data.ums_array[idx]);
+            }
+            for (k = 0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fscanf(fp, "%lf ", &mscat_data.fms_array[idx]);
+            }
+            for (k = 0; k<=MXU_MS-1; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fscanf(fp, "%lf ", &mscat_data.wms_array[idx]);
+            }
+            for (k = 0; k<=MXU_MS-1; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fscanf(fp, "%d ", &mscat_data.ims_array[idx]);
+            }
+            
+            for (k=0; k<=MXU_MS-1; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                mscat_data.fms_array[idx] = mscat_data.fms_array[idx + 1]/mscat_data.fms_array[idx] - 1.0;
+                mscat_data.ims_array[idx] = mscat_data.ims_array[idx] - 1;
+            }
+            idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + MXU_MS;
+            mscat_data.fms_array[idx] = mscat_data.fms_array[idx-1];
+        }
+    }
+
+    double llammin = log(LAMBMIN_MS);
+    double llammax = log(LAMBMAX_MS);
+    double dllamb  = (llammax-llammin)/MXL_MS;
+    mscat_data.dllambi = 1.0/dllamb;
+    
+    double dqms    = QMAX_MS/MXQ_MS;
+    mscat_data.dqmsi = 1.0/dqms;
+    
+    fclose(fp);
+    
+    return;
+}
+
+void initMscatData() {
+    
+    int nmed = media.nmed;
+    
+    readRutherfordMscat(nmed);
+    
+    
+    for (int imed=0; imed<nmed; imed++) {
+        /* Absorb Euler constant into the multiple scattering parameter */
+        electron_data.blcc[imed] = 1.16699413758864573*electron_data.blcc[imed];
+        
+        /* Take its square as this is employed throughout */
+        electron_data.xcc[imed] = pow(electron_data.xcc[imed], 2.0);
+    }
+    
+    /* Initialize data for spin effects */
+    initSpinData(nmed);
+    
+    /* Determine maximum cross-section per energy loss for every medium */
+    double esige_max = 0.0;
+    double psige_max = 0.0;
+    double sigee, sigep, sige_old, sigp_old, p2, beta2, chi_a2, si, sip1;
+    double ei, eil, ededx, dedx0, sig, eip1, eke, elke, ekef, elkef,
+        aux, estepx, eip1l, elktmp, ektmp;
+    int neke, ise_monoton, isp_monoton, leil, lelke, lelkef, leip1l, lelktmp;
+    
+    /* Allocate memory for electron data */
+    electron_data.sig_ismonotone = malloc(2*nmed*sizeof(int));
+    electron_data.esig_e = malloc(nmed*sizeof(double));
+    electron_data.psig_e = malloc(nmed*sizeof(double));
+    electron_data.e_array = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.range_ep = malloc(2*nmed*MXEKE*sizeof(double));
+    electron_data.expeke1 = malloc(nmed*sizeof(double));
+    
+    /* Zero the following arrays, as they surely are not totally used. */
+    memset(electron_data.e_array, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.range_ep, 0.0, 2*nmed*MXEKE*sizeof(double));
+
+    for (int imed=0; imed<nmed; imed++) {
+        sigee = 1.0E-15;
+        sigep = 1.0E-15;
+        neke = pegs_data.meke[imed]; /* Number of elements in storage array */
+        
+        /* The following are boolean variables, both true by default */
+        ise_monoton = 1;
+        isp_monoton = 1;
+        
+        sige_old = -1.0;
+        sigp_old = -1.0;
+        
+        for (int i=1; i<=neke; i++) {
+            ei   = exp(((double)i - electron_data.eke0[imed])/electron_data.eke1[imed]);
+            eil  = log(ei);
+            leil = i - 1; /* Consider C indexing */
+            
+            ededx = electron_data.ededx1[imed*MXEKE + leil]*eil +
+                electron_data.ededx0[imed*MXEKE + leil];
+            sig = electron_data.esig1[imed*MXEKE + leil]*eil +
+                electron_data.esig0[imed*MXEKE + leil];
+            
+            sig /= ededx;
+            if (sig > sigee) {
+                sigee = sig;
+            }
+            if (sig < sige_old) {
+                ise_monoton = 0; /* i.e. false */
+            }
+            sige_old = sig;
+            
+            ededx = electron_data.pdedx1[imed*MXEKE + leil]*eil +
+                electron_data.pdedx0[imed*MXEKE + leil];
+            sig = electron_data.psig1[imed*MXEKE + leil]*eil +
+                electron_data.psig0[imed*MXEKE + leil];
+            
+            sig /= ededx;
+            if (sig>sigep) {
+                sigep = sig;
+            }
+            if (sig<sigp_old) {
+                isp_monoton = 0; /* i.e. false */
+            }
+            sigp_old = sig;
+
+        }
+        electron_data.sig_ismonotone[0*nmed + imed] = ise_monoton;
+        electron_data.sig_ismonotone[1*nmed + imed] = isp_monoton;
+        electron_data.esig_e[imed] = sigee;
+        electron_data.psig_e[imed] = sigep;
+        
+        if (sigee > esige_max) {
+            esige_max = sigee;
+        }
+        if (sigep > psige_max) {
+            psige_max = sigep;
+        }
+    }
+    
+    /* Determine upper limit in step size for multiple scattering */
+    for (int imed=0; imed<nmed; imed++) {
+        /* Calculate range arrays first */
+        
+        /* Energy of first table entry */
+        ei = exp((1.0 - electron_data.eke0[imed])/electron_data.eke1[imed]);
+        eil = log(ei);
+        leil = 0;
+        electron_data.e_array[imed*MXEKE] = ei;
+        electron_data.expeke1[imed] = exp(1.0/electron_data.eke1[imed]) - 1.0;
+        electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE] = 0.0;
+        electron_data.range_ep[1*nmed*MXEKE + imed*MXEKE] = 0.0;
+        
+        neke = pegs_data.meke[imed]; /* number of elements in storage array */
+        for (int i=1; i<=neke-1; i++) {
+            /* Energy at i + 1*/
+            eip1 = exp(((double)(i + 1) -
+                        electron_data.eke0[imed])/electron_data.eke1[imed]);
+            electron_data.e_array[imed*MXEKE + i] = eip1;
+            
+            /* Calculate range. The following expressions result from the
+             logarithmic interpolation for the (restricted) stopping power
+             and a power series expansion of the integral */
+            eke = 0.5*(eip1 + ei);
+            elke = log(eke);
+            lelke = (int)(electron_data.eke1[imed]*elke +
+                          electron_data.eke0[imed]) - 1;
+            ededx = electron_data.pdedx1[imed*MXEKE + lelke]*elke +
+                electron_data.pdedx0[imed*MXEKE + lelke];
+            aux = electron_data.pdedx1[imed*MXEKE + i - 1]/ededx;
+            
+            electron_data.range_ep[1*nmed*MXEKE + imed*MXEKE + i] =
+                electron_data.range_ep[1*nmed*MXEKE + imed*MXEKE + i - 1] +
+                    (eip1-ei)/ededx*(1.0 +
+                        aux*(1.0 + 2.0*aux)*pow((eip1-ei)/eke, 2.0)/24.0);
+            
+            ededx = electron_data.ededx1[imed*MXEKE + lelke]*elke +
+                electron_data.ededx0[imed*MXEKE + lelke];
+            aux = electron_data.ededx1[imed*MXEKE + i - 1]/ededx;
+            
+            electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + i] =
+                electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + i - 1] +
+                    (eip1 - ei)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                        pow(((eip1 - ei)/eke), 2.0)/24.0);
+            
+            ei = eip1;
+        }
+        
+        /* Now tmxs */
+        eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        ei  = exp(eil); leil = 1;
+        p2  = ei*(ei + 2.0*RM);
+        beta2 = p2/(p2 + pow(RM, 2.0));
+        chi_a2 = electron_data.xcc[imed]/(4.0*p2*electron_data.blcc[imed]);
+        dedx0 = electron_data.ededx1[imed*MXEKE + leil]*eil +
+            electron_data.ededx0[imed*MXEKE + leil];
+        estepx = 2.0*p2*beta2*dedx0/ei/electron_data.xcc[imed]/
+            (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
+        estepx *= XIMAX;
+        if (estepx > ESTEPE) {
+            estepx = ESTEPE;
+        }
+        si = estepx*ei/dedx0;
+        
+        for (int i=1; i<=neke - 1; i++){
+            elke = ((double)(i + 1) -
+                    electron_data.eke0[imed])/electron_data.eke1[imed];
+            eke  = exp(elke);
+            lelke = i;
+            
+            p2 = eke*(eke + 2.0*RM);
+            beta2 = p2/(p2 + pow(RM, 2.0));
+            chi_a2 = electron_data.xcc[imed]/(4.0*p2*electron_data.blcc[imed]);
+            ededx = electron_data.ededx1[imed*MXEKE + lelke]*elke +
+                electron_data.ededx0[imed*MXEKE + lelke];
+            estepx = 2.0*p2*beta2*ededx/eke/(electron_data.xcc[imed])/
+            (log(1.0 + 1.0/chi_a2)*(1.0 + chi_a2) - 1.0);
+            estepx = estepx*XIMAX;
+            
+            if (estepx > ESTEPE) {
+                estepx = ESTEPE;
+            }
+            ekef = (1.0 - estepx)*eke;
+            if (ekef <= electron_data.e_array[imed*MXEKE]) {
+                sip1 = (electron_data.e_array[imed*MXEKE] - ekef)/dedx0;
+                ekef = electron_data.e_array[imed*MXEKE];
+                elkef = (1.0 -
+                         electron_data.eke0[imed])/electron_data.eke1[imed];
+                lelkef = 0;
+            }
+            else{
+                elkef = log(ekef);
+                lelkef = electron_data.eke1[imed]*elkef +
+                    electron_data.eke0[imed] - 1;
+                leip1l = lelkef + 1;
+                /* The value of leip1l must be adjusted by one in the following
+                 sentence, due to the use of C-indexing convention */
+                eip1l  = ((double)(leip1l + 1) -
+                          electron_data.eke0[imed])/electron_data.eke1[imed];
+                eip1   = electron_data.e_array[imed*MXEKE + leip1l];
+                aux    = (eip1 - ekef)/eip1;
+                elktmp = 0.5*(elkef + eip1l + 0.25*aux*aux*(1.0 +
+                                                    aux*(1.0 + 0.875*aux)));
+                ektmp  = 0.5*(ekef+eip1);
+                lelktmp = lelkef;
+                ededx = electron_data.ededx1[imed*MXEKE + lelktmp]*elktmp +
+                    electron_data.ededx0[imed*MXEKE + lelktmp];
+                aux = electron_data.ededx1[imed*MXEKE + lelktmp]/ededx;
+                sip1 = (eip1 - ekef)/ededx*(1.0 + aux*(1.0 + 2.0*aux)*
+                            (pow(((eip1-ekef)/ektmp),2.0)/24.0));
+            }
+            
+            sip1 += electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelke] -
+                electron_data.range_ep[0*nmed*MXEKE + imed*MXEKE + lelkef + 1];
+            
+            /* Now solve these equations
+             si   = tmxs1 * eil   + tmxs0
+             sip1 = tmxs1 * eip1l + tmxs0 */
+            electron_data.tmxs1[imed*MXEKE + i - 1] =
+                (sip1 - si)*electron_data.eke1[imed];
+            electron_data.tmxs0[imed*MXEKE + i - 1] = sip1 -
+                electron_data.tmxs1[imed*MXEKE + i - 1]*elke;
+            si  = sip1;
+            
+        }
+        electron_data.tmxs0[imed*MXEKE + neke - 1] =
+            electron_data.tmxs0[imed*MXEKE + neke - 2];
+        electron_data.tmxs1[imed*MXEKE + neke - 1] =
+            electron_data.tmxs1[imed*MXEKE + neke - 2];
+    }
+    
+    return;
+}
+
+void cleanMscat() {
+    
+    free(mscat_data.fms_array);
+    free(mscat_data.ims_array);
+    free(mscat_data.ums_array);
+    free(mscat_data.wms_array);
+    
+    return;
+}
+
+void listMscat() {
+    
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "mscat_data.lst");
+    
+    /* List mscat data to output file */
+    FILE *fp;
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing multi-scattering data: \n");
+    fprintf(fp, "dllambi = %f\n", mscat_data.dllambi);
+    fprintf(fp, "dqmsi = %f\n", mscat_data.dqmsi);
+    
+    int idx;
+    
+    fprintf(fp, "\n");
+    fprintf(fp, "ums_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "ums_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.ums_array[idx]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    fprintf(fp, "fms_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "fms_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.fms_array[idx]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    fprintf(fp, "wms_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "wms_array[%d][%d][%d] = %f\n",
+                        i, j, k, mscat_data.wms_array[idx]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    fprintf(fp, "ims_array = \n");
+    for (int i=0; i<=MXL_MS; i++) {
+        for (int j=0; j<=MXQ_MS; j++) {
+            for (int k=0; k<=MXU_MS; k++) {
+                idx = i*(MXQ_MS + 1)*(MXU_MS + 1) + j*(MXU_MS + 1) + k;
+                fprintf(fp, "ims_array[%d][%d][%d] = %d\n",
+                        i, j, k, mscat_data.ims_array[idx]);
+            }
+        }
+    }
+    fprintf(fp, "\n");
+    
+    fclose(fp);
+    
+    return;
+}
 
 void shower() {
  
@@ -2139,6 +3027,19 @@ int readPegsFile(int *media_found) {
     fclose(fp);
     
     return nmedia;
+}
+
+/* Region-by-region data definition */
+struct Region region;
+
+void cleanRegions() {
+    
+    free(region.med);
+    free(region.rhof);
+    free(region.ecut);
+    free(region.pcut);
+    
+    return;
 }
 
 /******************************************************************************/
