@@ -4,3 +4,5 @@
 files
 xmgr_script
 *.lst
+.vscode
+*.out
