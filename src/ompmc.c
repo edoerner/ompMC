@@ -37,7 +37,7 @@ void parseInputFile(char *input_file) {
     char buf[BUFFER_SIZE];      // support lines up to 120 characters
     
     /* Make space for the new string */
-    char *extension = INPUT_EXT;
+    const char *extension = INPUT_EXT;
     char *file_name = malloc(strlen(input_file) + strlen(extension) + 1);
     strcpy(file_name, input_file);
     strcat(file_name, extension); /* add the extension */
@@ -2104,10 +2104,1270 @@ void photo() {
     return;
 }
 
+/* Simulation of photon step */
+void photon() {
+    
+    int np = stack.np;              // stack pointer
+    int irl = stack.ir[np];         // region index
+    int imed = region.med[irl];     // medium index of current region
+    double edep = 0.0;              // deposited energy by particle
+    double eig = stack.e[np];       // energy of incident gamma
+    
+    /* First check for photon cutoff energy */
+    if (eig <= region.pcut[irl]) {
+        edep = eig;
+        
+        /* Deposit energy on the spot */
+        ausgab(edep);
+        stack.np -= 1;
+        return;
+    }
+    
+    /* Select photon mean free path */
+    double rnno = setRandom();
+    if (rnno < 1.0E-30) {
+        rnno = 1.0E-30;
+    }
+    double dpmfp = (-1.0)*log(rnno);
+    
+    int lgle = 0;           // index for gamma MFP interpolation
+    double gle = log(eig);  /* gle is gamma log energy, here to sample number
+                             of mfp to transport before interacting */
+    double cohfac = 0.0;    // Rayleigh scattering correction
+    int ptrans = 1;         // variable to control photon transport (true)
+    int pmedium = 1;        /* variable to control pass of photon to
+                             another medium (true) */
+    
+    do {    /* start of "new medium" loop */
+        double gmfpr0 = 0.0;  /* photon mfp before density and coherent
+                               correction */
+        
+        if (imed != -1) {
+            /* Adjust lgle to C indexing */
+            lgle = pwlfInterval(imed, gle,
+                                photon_data.ge1, photon_data.ge0) - 1;
+            gmfpr0 = pwlfEval(imed*MXGE + lgle, gle,
+                              photon_data.gmfp1, photon_data.gmfp0);
+            
+        }
+        
+        do {    /* start of "photon transport loop */
+            double tstep;       // distance to a discrete interaction
+            double gmfp = 0.0;  // photon MFP after density scaling
+            double rhof;        // mass density ratio
+            
+            if (imed == -1) {
+                tstep = 10.0E8; // i.e. infinity
+            }
+            else {
+                /* Density ratio scaling templates */
+                rhof = region.rhof[irl];
+                gmfp = gmfpr0/rhof;
+                
+                /* Rayleigh scattering template */
+                cohfac = pwlfEval(imed*MXGE + lgle, gle,
+                                  photon_data.cohe1, photon_data.cohe0);
+                gmfp *= cohfac;
+                tstep = gmfp*dpmfp;
+            }
+
+            int irnew = irl;       // default new region number
+            int idisc = 0;          // assume photon is not discarded
+            double ustep = tstep;    // transfer transport distance to user variable
+            
+            if(ustep > stack.dnear[np] || stack.wt[np] <= 0) {
+                howfar(&idisc, &irnew, &ustep);
+            }            
+            
+            if (idisc > 0) {
+                /* User requested inmediate discard */
+                edep = eig;
+                ausgab(edep);
+                stack.np -= 1;
+                return;
+            }
+            
+            /* Transport distance after truncation by howfar */
+            double vstep = ustep;
+            
+            /* Transport the photon */
+            stack.x[np] += vstep*stack.u[np];
+            stack.y[np] += vstep*stack.v[np];
+            stack.z[np] += vstep*stack.w[np];
+            stack.dnear[np] -= ustep;
+            
+            if (imed != -1) {
+                /* Deduct mean free path */
+                dpmfp = fmax(0.0, dpmfp-ustep/gmfp);
+            }
+            int irold = irl;    /* save region before transport */
+            int medold = imed;
+            
+            if (irnew != irold) {
+                /* Region change */
+                stack.ir[np] = irnew;
+                irl = stack.ir[np];
+                imed = region.med[irl];
+            }
+
+            if (eig <= region.pcut[irl]) {
+                edep = eig;
+                
+                /* Deposit energy on the spot */
+                ausgab(edep);
+                stack.np -= 1;
+                return;
+            }
+            
+            if (imed != medold) {
+                ptrans = 0;
+            }
+            
+            if (imed != -1 && dpmfp <= SGMFP) {
+                /* Time for an interaction */
+                pmedium = 0;
+                ptrans = 0;
+            }
+
+        } while (ptrans);   /* end of "photon transport loop */
+    } while (pmedium); /* end of "new medium" loop */
+    
+    /* Time for an interaction. First check for Rayleigh scattering */
+    rnno = setRandom();
+    if (rnno <= 1.0 - cohfac) {
+        /* It was Rayleigh */
+        rayleigh(imed, eig, gle, lgle);
+    }
+    else {
+        /* Other interactions */
+        rnno = setRandom();
+        
+        /* gbr1 = pair/(pair + compton + photo) = pair/gtotal */
+        double gbr1 = pwlfEval(imed*MXGE + lgle, gle,
+                               photon_data.gbr11, photon_data.gbr10);
+        if (rnno <= gbr1 && eig>2.0*RM) {
+            /* It was pair production */           
+            pair(imed);
+
+            np = stack.np;                  
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
+        
+        /* gbr2 = (pair + compton)/gtotal */
+        double gbr2 = pwlfEval(imed*MXGE + lgle, gle,
+                               photon_data.gbr21, photon_data.gbr20);
+        
+        if (rnno < gbr2) {
+            /* It was compton */            
+            compton();      
+
+            np = stack.np;            
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
+        else {
+            /* It was photoelectric */            
+            photo();
+            
+            if (stack.iq[np] != 0) {
+                /* Electron to be transported next */
+                return;
+            }
+        }
+    }
+    
+    /* If here, photon is the lowest energy particle. The particle exits
+     this function and re-enters to resume transport process */
+    
+    return;
+}
+
 /*******************************************************************************
 * Electron physical processes definitions
 *******************************************************************************/
 struct Electron electron_data;
+
+void cleanElectron() {
+    
+    free(electron_data.blcc);
+    free(electron_data.blcce0);
+    free(electron_data.blcce1);
+    free(electron_data.e_array);
+    free(electron_data.ebr10);
+    free(electron_data.ebr11);
+    free(electron_data.ededx0);
+    free(electron_data.ededx1);
+    free(electron_data.eke0);
+    free(electron_data.eke1);
+    free(electron_data.esig0);
+    free(electron_data.esig1);
+    free(electron_data.esig_e);
+    free(electron_data.etae_ms0);
+    free(electron_data.etae_ms1);
+    free(electron_data.etap_ms0);
+    free(electron_data.etap_ms1);
+    free(electron_data.expeke1);
+    free(electron_data.pbr10);
+    free(electron_data.pbr11);
+    free(electron_data.pbr20);
+    free(electron_data.pbr21);
+    free(electron_data.pdedx0);
+    free(electron_data.pdedx1);
+    free(electron_data.psig0);
+    free(electron_data.psig1);
+    free(electron_data.psig_e);
+    free(electron_data.q1ce_ms0);
+    free(electron_data.q1ce_ms1);
+    free(electron_data.q1cp_ms0);
+    free(electron_data.q1cp_ms1);
+    free(electron_data.q2ce_ms0);
+    free(electron_data.q2ce_ms1);
+    free(electron_data.q2cp_ms0);
+    free(electron_data.q2cp_ms1);
+    free(electron_data.range_ep);
+    free(electron_data.tmxs0);
+    free(electron_data.tmxs1);
+    free(electron_data.xcc);
+    free(electron_data.sig_ismonotone);
+    
+    return;
+}
+
+void listElectron(void) {
+
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "electron_data.lst");
+    
+    /* List electron data to output file */
+    FILE *fp;
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing electron data: \n");
+    for (int i=0; i<media.nmed; i++) {
+        fprintf(fp, "For medium %s: \n", media.med_names[i]);
+        fprintf(fp, "electron_data.blcc[%d] = %15.5f\n", i,
+                electron_data.blcc[i]);
+        fprintf(fp, "electron_data.xcc[%d] = %15.5f\n", i,
+                electron_data.xcc[i]);
+        fprintf(fp, "electron_data.eke = \n");
+        fprintf(fp, "\t eke0[%d] = %15.5f, eke1[%d] = %15.5f\n", i,
+                electron_data.eke0[i], i, electron_data.eke1[i]);
+        fprintf(fp, "electron_data.sig_ismonotone = \n");
+        fprintf(fp, "\t sig_ismonotone[0][%d] = %d, sig_ismonotone[1][%d] = %d\n", i,
+                electron_data.sig_ismonotone[0*media.nmed + i], i, electron_data.sig_ismonotone[1*media.nmed + i]);
+        fprintf(fp, "electron_data.esig_e[%d] = %15.5f\n", i,
+                electron_data.esig_e[i]);
+        fprintf(fp, "electron_data.psig_e[%d] = %15.5f\n", i,
+                electron_data.psig_e[i]);
+        fprintf(fp, "electron_data.expeke1[%d] = %15.5f\n", i,
+                electron_data.expeke1[i]);
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.esig = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "esig0[%d][%d] = %15.5f, esig1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.esig0[idx],
+                    j, i, electron_data.esig1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.psig = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "psig0[%d][%d] = %15.5f, psig1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.psig0[idx],
+                    j, i, electron_data.psig1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.ededx = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "ededx0[%d][%d] = %15.5f, ededx1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.ededx0[idx],
+                    j, i, electron_data.ededx1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pdedx = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pdedx0[%d][%d] = %15.5f, pdedx1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pdedx0[idx],
+                    j, i, electron_data.pdedx1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.ebr1 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "ebr10[%d][%d] = %15.5f, ebr11[%d][%d] = %15.5f\n",
+                    j, i, electron_data.ebr10[idx],
+                    j, i, electron_data.ebr11[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pbr1 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pbr10[%d][%d] = %15.5f, pbr11[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pbr10[idx],
+                    j, i, electron_data.pbr11[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.pbr2 = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "pbr20[%d][%d] = %15.5f, pbr21[%d][%d] = %15.5f\n",
+                    j, i, electron_data.pbr20[idx],
+                    j, i, electron_data.pbr21[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.tmxs = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "tmxs0[%d][%d] = %15.5f, tmxs1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.tmxs0[idx],
+                    j, i, electron_data.tmxs1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.e_array = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "e_array[%d][%d] = %15.5f\n",
+                    j, i, electron_data.e_array[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.range_ep = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp, "range_ep[0][%d][%d] = %15.5f, range_ep[1][%d][%d] = %15.5f\n",
+                    j, i, electron_data.range_ep[idx],
+                    j, i, electron_data.range_ep[idx+media.nmed*MXEKE]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.etae_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"etae_ms0[%d][%d] = %15.5f, etae_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.etae_ms0[idx],
+                    j, i, electron_data.etae_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.etap_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"etap_ms0[%d][%d] = %15.5f, etap_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.etap_ms0[idx],
+                    j, i, electron_data.etap_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q1ce_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q1ce_ms0[%d][%d] = %15.5f, q1ce_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q1ce_ms0[idx],
+                    j, i, electron_data.q1ce_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q1cp_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q1cp_ms0[%d][%d] = %15.5f, q1cp_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q1cp_ms0[idx],
+                    j, i, electron_data.q1cp_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q2ce_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q2ce_ms0[%d][%d] = %15.5f, q2ce_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q2ce_ms0[idx],
+                    j, i, electron_data.q2ce_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.q2cp_ms = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"q2cp_ms0[%d][%d] = %15.5f, q2cp_ms1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.q2cp_ms0[idx],
+                    j, i, electron_data.q2cp_ms1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+        fprintf(fp, "electron_data.blcce = \n");
+        for (int j=0; j<MXEKE; j++) {
+            int idx = i*MXEKE + j;
+            fprintf(fp,"blcce0[%d][%d] = %15.5f, blcce1[%d][%d] = %15.5f\n",
+                    j, i, electron_data.blcce0[idx],
+                    j, i, electron_data.blcce1[idx]);
+        }
+        fprintf(fp, "\n");
+        
+    }
+    
+    fclose(fp);
+    
+    return;
+}
+
+/* Spin data */
+struct Spin spin_data;
+
+void initSpinData(int nmed) {
+    
+    /* Get file path from input data */
+    char data_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "data folder") != 1) {
+        printf("Can not find 'data folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(data_folder, buffer);
+    
+    char spinms_file[256];
+    strcpy(spinms_file, data_folder);
+    strcat(spinms_file, "spinms.data");
+    
+    /* Open spinms file */
+    FILE *fp;
+    if ((fp = fopen(spinms_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", spinms_file);
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Path to spin data file : %s\n", spinms_file);
+    
+    /* Get length of file to create data buffers to reading */
+    fseek(fp, 0, SEEK_END);
+    long spin_file_len = ftell(fp);
+    rewind(fp);
+    
+    /* The spin file is a binary one, therefore the reading process is much
+     more strict. We use float variables as helpers */
+    float *spin_buffer = (float*)malloc((spin_file_len/4)*sizeof(float));
+    short *spin_buffer_int = (short*)malloc((spin_file_len/2)*sizeof(short));
+    
+    /* Read spin file version */
+    char version[32];
+    printf("\t");
+    for (int i=0; i<32; i++) {
+        fread(&version[i], 1, 1, fp);
+        printf("%c", version[i]);
+    }
+    printf("\n");
+    
+    /* Read spin file endianess */
+    char endianess[4];
+    printf("\tspin file endianess : ");
+    for (int i=0; i<4; i++) {
+        fread(&endianess[i], 1, 1, fp);
+        printf("%c", endianess[i]);
+    }
+    printf("\n");
+    
+    /* Read values for spin and b2, max and min values */
+    float espin_max;
+    float espin_min;
+    float b2spin_max;
+    float b2spin_min;
+    fread(&espin_min, 4, 1, fp);
+    fread(&espin_max, 4, 1, fp);
+    fread(&b2spin_min, 4, 1, fp);
+    fread(&b2spin_max, 4, 1, fp);
+    
+    /* Save information on spin data struct */
+    spin_data.b2spin_min = (double)b2spin_min;
+    
+    float algo[276];
+    fread(&algo, 263, 4, fp);
+    
+    int nener = MXE_SPIN;
+    double dloge = log(espin_max/espin_min)/(double)nener;
+    double eloge = log(espin_min);
+    
+    double *earray = (double*) malloc((MXE_SPIN1+1)*sizeof(double));
+    earray[0] = espin_min;
+    
+    for (int i=1; i<=nener; i++) {
+        eloge += dloge;
+        earray[i] = exp(eloge);
+    }
+    
+    double dbeta2 = (b2spin_max - b2spin_min)/nener;
+    double beta2 = b2spin_min;
+    earray[nener+1] = espin_max;
+    
+    for (int i=nener+2; i<=2*nener + 1; i++) {
+        beta2 += dbeta2;
+        
+        if (beta2 < 0.999) {
+            earray[i] = RM*1000.0*(1.0/sqrt(1.0 - beta2) - 1);
+        }
+        else {
+            earray[i] = 50585.1;
+        }
+    }
+    
+    /* Convert to MeV and set interpolation intervals */
+    espin_min /= 1000.0;
+    espin_max /= 1000.0;
+    double dlener = log(espin_max/espin_min)/MXE_SPIN;
+    spin_data.dleneri = 1.0/dlener;
+    spin_data.espml = log(espin_min);
+    dbeta2 = (b2spin_max - b2spin_min)/MXE_SPIN;
+    spin_data.dbeta2i = 1.0/dbeta2;
+    double dqq1 = 0.5/MXQ_SPIN;
+    spin_data.dqq1i = 1.0/dqq1;
+    
+    double *eta_array = (double*) malloc(2*(MXE_SPIN1+1)*sizeof(double));
+    double *c_array = (double*) malloc(2*(MXE_SPIN1+1)*sizeof(double));
+    double *g_array = (double*) malloc(2*(MXE_SPIN1+1)*sizeof(double));
+    
+    spin_data.spin_rej = malloc(nmed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*
+                           (MXU_SPIN + 1)*sizeof(double));
+    memset(spin_data.spin_rej, 0.0, nmed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*
+           (MXU_SPIN + 1)*sizeof(double));
+    
+    double *fmax_array = (double*) malloc((MXQ_SPIN + 1)*sizeof(double));
+    
+    /* Needed for correction to first MS moment due to spin effects */
+    double *elarray = (double*) malloc((MXE_SPIN1 + 1)*sizeof(double));
+    double *farray = (double*) malloc((MXE_SPIN1 + 1)*sizeof(double));
+    
+    double *af = (double*) malloc((MXE_SPIN1+1)*sizeof(double));
+    double *bf = (double*) malloc((MXE_SPIN1+1)*sizeof(double));
+    double *cf = (double*) malloc((MXE_SPIN1+1)*sizeof(double));
+    double *df = (double*) malloc((MXE_SPIN1+1)*sizeof(double));
+    
+    /* Allocate memory for electron data */
+    electron_data.etae_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.etae_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.etap_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.etap_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q1ce_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q1ce_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q1cp_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q1cp_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q2ce_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q2ce_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q2cp_ms0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.q2cp_ms1 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.blcce0 = malloc(nmed*MXEKE*sizeof(double));
+    electron_data.blcce1 = malloc(nmed*MXEKE*sizeof(double));
+    
+    /* Zero the following arrays, as they are surely not totally used. */
+    memset(electron_data.etae_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etae_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etap_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.etap_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1ce_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1ce_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1cp_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q1cp_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2ce_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2ce_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2cp_ms0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.q2cp_ms1, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.blcce0, 0.0, nmed*MXEKE*sizeof(double));
+    memset(electron_data.blcce1, 0.0, nmed*MXEKE*sizeof(double));
+    
+    for (int imed = 0; imed<nmed; imed++) {
+        double sum_Z2 = 0.0, sum_A = 0.0, sum_pz = 0.0, sum_Z = 0.0;
+        
+        /* Set following arrays to zero before calculation */
+        memset(eta_array, 0.0, 2*(MXE_SPIN1+1)*sizeof(double));
+        memset(c_array, 0.0, 2*(MXE_SPIN1+1)*sizeof(double));
+        memset(g_array, 0.0, 2*(MXE_SPIN1+1)*sizeof(double));
+        
+        rewind(fp);
+        fread(&spin_buffer[0], 4, spin_file_len/4, fp);
+        rewind(fp);
+        fread(&spin_buffer_int[0], 2, spin_file_len/2, fp);
+        
+        int irec, i2_array[512], ii2;
+        double dum1, dum2, dum3, aux_o, tau, eta, gamma, flmax;
+        
+        for (int i_ele=0; i_ele<pegs_data.ne[imed]; i_ele++) {
+            double z = pegs_data.elements[imed][i_ele].z;
+            int iz = (int)(z + 0.5);
+            double pz = pegs_data.elements[imed][i_ele].pz;
+            double tmp = z*(z + 1.0)*pz;
+            
+            sum_Z2 += tmp;
+            sum_Z += pz*z;
+            sum_A += pz*pegs_data.elements[imed][i_ele].wa;
+            sum_pz += pz;
+            double z23 = pow(z, 2.0/3.0);
+            
+            for (int iq = 0; iq<2; iq++) {
+                for (int i=0; i<= MXE_SPIN1; i++) {
+                    irec = 1 + (iz - 1)*4*(nener+1) + 2*iq*(nener + 1) + i + 1;
+                    dum1 = spin_buffer[276*(irec - 1)];
+                    dum2 = spin_buffer[276*(irec - 1) + 1];
+                    dum3 = spin_buffer[276*(irec - 1) + 2];
+                    aux_o = spin_buffer[276*(irec - 1) + 3];
+                    
+                    for (int fai = 0; fai <= MXQ_SPIN; fai++) {
+                        fmax_array[fai] = spin_buffer[276 * (irec - 1)
+                                                      + 4 + fai];
+                    }
+                    for (int i2 = 0; i2<512; i2++) {
+                        i2_array[i2] = spin_buffer_int[552 * (irec - 1)
+                                                       + 40 + i2];
+                    }
+                    
+                    eta_array[iq*(MXE_SPIN1+1) + i] += tmp*log(z23*aux_o);
+                    
+                    /* Energy in the file is in keV */
+                    tau = earray[i]/(1000.0*RM);
+                    beta2 = tau*(tau + 2)/((tau + 1)*(tau + 1));
+                    eta = z23/((137.03604/*fine*/*0.88534138/*TF_constant*/)*
+                                 (137.03604*0.88534138))*aux_o/4/tau/(tau + 2);
+                    c_array[iq*(MXE_SPIN1+1) + i] += tmp*(log(1.0 + 1.0/eta)
+                        - 1.0 / (1.0 + eta))*dum1*dum3;
+                    g_array[iq*(MXE_SPIN1+1) + i] += tmp*dum2;
+                    
+                    for (int j = 0; j <= MXQ_SPIN; j++) {
+                        for (int k = 0; k <= MXU_SPIN; k++) {
+                            ii2 = (int)i2_array[(MXU_SPIN + 1)*j + k];
+                            if (ii2<0) { ii2 += 65536; }
+                            dum1 = ii2;
+                            dum1 = dum1*fmax_array[j] / 65535;
+                            spin_data.spin_rej[imed*2*(MXE_SPIN1 + 1)*
+                                     (MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                     + iq*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)
+                                     *(MXU_SPIN + 1)
+                                     + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                     + j*(MXU_SPIN + 1) + k] += tmp*dum1;
+                        }
+                    }
+                }
+            }
+        }
+        
+        /* spin_rej will be used as a rejection function in MS sampling, so
+         scale maximum to unity */
+        for (int iq=0; iq<2; iq++) {
+            for (int i=0; i<=MXE_SPIN1; i++) {
+                for (int j=0; j<=MXQ_SPIN; j++) {
+                    flmax = 0.0;
+                    for (int k=0; k<=MXU_SPIN; k++) {
+                        if (flmax<spin_data.spin_rej[imed*2*(MXE_SPIN1 + 1)*
+                                           (MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                           + iq*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)
+                                           *(MXU_SPIN + 1)
+                                           + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                           + j*(MXU_SPIN + 1) + k]) {
+                            flmax = spin_data.spin_rej[imed*2*(MXE_SPIN1 + 1)*
+                                             (MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                             + iq*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)
+                                             *(MXU_SPIN + 1)
+                                             + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                             + j*(MXU_SPIN + 1) + k];
+                        }
+                    }
+                    for (int k = 0; k <= MXU_SPIN; k++) {
+                        spin_data.spin_rej[imed*2*(MXE_SPIN1 + 1)*
+                                 (MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                 + iq*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)
+                                 *(MXU_SPIN + 1)
+                                 + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                 + j*(MXU_SPIN + 1) + k] =
+                        spin_data.spin_rej[imed*2*(MXE_SPIN1 + 1)*
+                                 (MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                 + iq*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)
+                                 *(MXU_SPIN + 1)
+                                 + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                                 + j*(MXU_SPIN + 1) + k]/flmax;
+                    }
+                }
+            }
+        }
+        
+        /* Process eta_array, c_array and g_array to their final form */
+        for (int i=0; i <= MXE_SPIN1; i++) {
+            tau = (earray[i]/RM)*0.001;
+            beta2 = tau*(tau + 2.0)/pow(tau + 1.0, 2.0);
+            
+            for (int iq=0; iq<2; iq++) {
+                aux_o = exp(eta_array[iq*(MXE_SPIN1 + 1) + i]/sum_Z2) /
+                (pow(137.03604*0.88534138, 2.0));
+                eta_array[iq*(MXE_SPIN1 + 1) + i] = 0.26112447*aux_o*
+                (electron_data.blcc[imed])/(electron_data.xcc[imed]);
+                eta = aux_o / 4.0 / tau / (tau + 2);
+                gamma = 3.0*(1.0 + eta)*(log(1.0 + 1.0 / eta)*(1.0 + 2.0*eta)
+                                         - 2.0) /
+                (log(1.0 + 1.0 / eta)*(1.0 + eta) - 1.0);
+                g_array[iq*(MXE_SPIN1 + 1) + i] =
+                    g_array[iq*(MXE_SPIN1 + 1) + i]/sum_Z2/gamma;
+                c_array[iq*(MXE_SPIN1 + 1) + i] =
+                    c_array[iq*(MXE_SPIN1 + 1) + i]/sum_Z2/
+                    (log(1.0 + 1.0/eta) - 1.0/(1.0 + eta));
+            }
+        }
+        
+        /* Prepare interpolation table for the screening parameter */
+        double eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        double e = exp(eil);
+        double si1e, si1p, si2e, si2p, aae;
+        int je = 0;
+        
+        if (e<=espin_min) {
+            si1e = eta_array[0*(MXE_SPIN1 + 1) + 0];
+            si1p = eta_array[1*(MXE_SPIN1 + 1) + 0];
+        }
+        else {
+            if (e <= espin_max) {
+                aae = (eil - spin_data.espml)*spin_data.dleneri;
+                je = (int)aae;
+                aae = aae - je;
+            }
+            else {
+                tau = e/RM;
+                beta2 = tau*(tau + 2.0)/pow(tau + 1.0, 2.0);
+                aae = (beta2 - spin_data.b2spin_min)*spin_data.dbeta2i;
+                je = (int)aae;
+                aae = aae - je;
+                je = je + MXE_SPIN + 1;
+            }
+            si1e = (1 - aae)*eta_array[0*(MXE_SPIN1 + 1) + je] +
+                aae*eta_array[0*(MXE_SPIN1 + 1) + (je + 1)];
+            si1p = (1 - aae)*eta_array[1*(MXE_SPIN1 + 1) + je] +
+                aae*eta_array[1*(MXE_SPIN1 + 1) + (je + 1)];
+        }
+        
+        int neke = pegs_data.meke[imed];
+        for (int i=1; i<neke; i++) {
+            eil = (i + 1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+            e = exp(eil);
+            if (e<=espin_min) {
+                si2e = eta_array[0*(MXE_SPIN1 + 1) + 0];
+                si2p = eta_array[1*(MXE_SPIN1 + 1) + 0];
+            }
+            else {
+                if (e<=espin_max) {
+                    aae = (eil - spin_data.espml)*spin_data.dleneri;
+                    je = (int)aae;
+                    aae = aae - je;
+                }
+                else {
+                    tau = e/RM;
+                    beta2 = tau*(tau + 2.0)/((tau + 1.0)*(tau + 1.0));
+                    aae = (beta2 - spin_data.b2spin_min)*spin_data.dbeta2i;
+                    je = (int)aae;
+                    aae = aae - je;
+                    je = je + MXE_SPIN + 1;
+                }
+                si2e = (1.0 - aae)*eta_array[0*(MXE_SPIN1 + 1) + je] +
+                    aae*eta_array[0*(MXE_SPIN1 + 1) + (je + 1)];
+                si2p = (1.0 - aae)*eta_array[1*(MXE_SPIN1 + 1) + je] +
+                    aae*eta_array[1*(MXE_SPIN1 + 1) + (je + 1)];
+                
+            }
+            
+            electron_data.etae_ms1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.etae_ms0[MXEKE*imed + i - 1] =
+                (si2e - electron_data.etae_ms1[MXEKE*imed + i - 1]*eil);
+            electron_data.etap_ms1[MXEKE*imed + i - 1] =
+                (si2p - si1p)*electron_data.eke1[imed];
+            electron_data.etap_ms0[MXEKE*imed + i - 1] =
+                (si2p - electron_data.etap_ms1[MXEKE*imed + i - 1]*eil);
+            si1e = si2e; si1p = si2p;
+        }
+        
+        electron_data.etae_ms1[MXEKE*imed + neke - 1] =
+            electron_data.etae_ms1[MXEKE*imed + neke - 2];
+        electron_data.etae_ms0[MXEKE*imed + neke - 1] =
+            electron_data.etae_ms0[MXEKE*imed + neke - 2];
+        electron_data.etap_ms1[MXEKE*imed + neke - 1] =
+            electron_data.etap_ms1[MXEKE*imed + neke - 2];
+        electron_data.etap_ms0[MXEKE*imed + neke - 1] =
+            electron_data.etap_ms0[MXEKE*imed + neke - 2];
+
+        /* Prepare correction to the first MS moment due to spin effects */
+        /* First electrons */
+        for (int i=0; i<=MXE_SPIN; i++) {
+            elarray[i] = log(earray[i]/1000.0);
+            farray[i] = c_array[0*(MXE_SPIN1 + 1) + i];
+        }
+        for (int i=MXE_SPIN+1; i<=MXE_SPIN1 - 1; i++) {
+            elarray[i] = log(earray[i+1]/1000.0);
+            farray[i] = c_array[0*(MXE_SPIN1 + 1) + i + 1];
+        }
+        
+        int ndata = MXE_SPIN1 + 1;
+        if (pegs_data.ue[imed] > 1.0E5) {
+            elarray[ndata - 1] = log(pegs_data.ue[imed]);
+        }
+        else {
+            elarray[ndata - 1] = log(1.0E5);
+        }
+        farray[ndata - 1] = 1.0;
+        
+        setSpline(elarray, farray, af, bf, cf, df, ndata);
+        eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        si1e = spline(eil, elarray, af, bf, cf, df, ndata);
+        
+        for(int i=1; i<=neke - 1; i++){
+            eil = (i + 1 - electron_data.eke0[imed])/electron_data.eke1[imed];
+            si2e = spline(eil, elarray, af, bf, cf, df, ndata);
+            electron_data.q1ce_ms1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.q1ce_ms0[MXEKE*imed + i - 1]=
+                si2e - electron_data.q1ce_ms1[MXEKE*imed + i - 1]*eil;
+            si1e = si2e;
+        }
+        electron_data.q1ce_ms1[MXEKE*imed + neke - 1] =
+            electron_data.q1ce_ms1[MXEKE*imed + neke - 2];
+        electron_data.q1ce_ms0[MXEKE*imed + neke - 1] =
+            electron_data.q1ce_ms1[MXEKE*imed + neke - 2];
+        
+        /* Now positrons */
+        for (int i=0; i<=MXE_SPIN; i++){
+            farray[i] = c_array[1*(MXE_SPIN1 + 1) + i];
+        }
+        for (int i=MXE_SPIN+1; i<=MXE_SPIN1 - 1; i++){
+            farray[i] = c_array[1*(MXE_SPIN1 + 1) + i + 1];
+        }
+        
+        setSpline(elarray, farray, af, bf, cf, df, ndata);
+        eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        si1e = spline(eil, elarray, af, bf, cf, df, ndata);
+        
+        for (int i=1; i<=neke-1; i++){
+            eil = (i + 1 - electron_data.eke0[imed])/electron_data.eke1[imed];
+            si2e = spline(eil, elarray, af, bf, cf, df, ndata);
+            electron_data.q1cp_ms1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.q1cp_ms0[MXEKE*imed + i - 1]=
+                si2e - electron_data.q1cp_ms1[MXEKE*imed + i - 1]*eil;
+            si1e = si2e;
+        }
+        electron_data.q1cp_ms1[MXEKE*imed + neke - 1] =
+            electron_data.q1cp_ms1[MXEKE*imed + neke - 2];
+        electron_data.q1cp_ms0[MXEKE*imed + neke - 1] =
+            electron_data.q1cp_ms0[MXEKE*imed + neke - 2];
+        
+        /* Prepare interpolation table for the second MS moment correction */
+        /* First electrons */
+        for (int i=0; i<=MXE_SPIN; i++) {
+            farray[i] = g_array[0*(MXE_SPIN1+1) + i];
+        }
+        for (int i=MXE_SPIN + 1; i<=MXE_SPIN1 - 1; i++) {
+            farray[i] = g_array[0*(MXE_SPIN1+1) + i + 1];
+        }
+        
+        setSpline(elarray, farray, af, bf, cf, df, ndata);
+        eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        si1e = spline(eil, elarray, af, bf, cf, df, ndata);
+        
+        for (int i=1; i<=neke-1; i++){
+            eil = (i + 1 - electron_data.eke0[imed])/electron_data.eke1[imed];
+            si2e = spline(eil, elarray, af, bf, cf, df, ndata);
+            electron_data.q2ce_ms1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.q2ce_ms0[MXEKE*imed + i - 1] =
+                si2e - electron_data.q2ce_ms1[MXEKE*imed + i - 1]*eil;
+            si1e = si2e;
+        }
+        electron_data.q2ce_ms1[MXEKE*imed + neke - 1] =
+            electron_data.q2ce_ms1[MXEKE*imed + neke - 2];
+        electron_data.q2ce_ms0[MXEKE*imed + neke - 1] =
+            electron_data.q2ce_ms0[MXEKE*imed + neke - 2];
+        
+        /* Now positrons */
+        for (int i=0; i<=MXE_SPIN; i++){
+            farray[i] = g_array[1*(MXE_SPIN1 + 1) + i];
+        }
+        for (int i=MXE_SPIN + 1; i<=MXE_SPIN1 - 1; i++){
+            farray[i] = g_array[1*(MXE_SPIN1 + 1) + i + 1];
+        }
+        
+        setSpline(elarray, farray, af, bf, cf, df, ndata);
+        eil = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+        si1e = spline(eil, elarray, af, bf, cf, df, ndata);
+        
+        for (int i=1; i<=neke - 1; i++){
+            eil = (i + 1 - electron_data.eke0[imed])/electron_data.eke1[imed];
+            si2e = spline(eil, elarray, af, bf, cf, df, ndata);
+            electron_data.q2cp_ms1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.q2cp_ms0[MXEKE*imed + i - 1] =
+                si2e - electron_data.q2cp_ms1[MXEKE*imed + i - 1]*eil;
+            si1e = si2e;
+        }
+        electron_data.q2cp_ms1[MXEKE*imed + neke - 1] =
+            electron_data.q2cp_ms1[MXEKE*imed + neke - 2];
+        electron_data.q2cp_ms0[MXEKE*imed + neke - 1] =
+            electron_data.q2cp_ms0[MXEKE*imed + neke - 2];
+        
+        /* Now substract scattering power that is already taken into account in
+         discrete Moller/Bhabha events */
+        double tauc = pegs_data.te[imed]/RM;
+        int leil;
+        double dedx, etap, g_r, g_m, sig;
+        si1e=1.0;
+        
+        for (int i=1; i<=neke - 1; i++){
+            eil = ((double)(i + 1) - electron_data.eke0[imed])/electron_data.eke1[imed];
+            e = exp(eil);
+            leil = i;
+            tau = e/RM;
+            
+            if (tau > 2.0*tauc){
+                sig = electron_data.esig1[MXEKE*imed + leil]*eil +
+                    electron_data.esig0[MXEKE*imed + leil];
+                dedx = electron_data.ededx1[MXEKE*imed + leil]*eil +
+                    electron_data.ededx0[MXEKE*imed + leil];
+                sig /= dedx;
+                
+                if (sig>1.0E-6) { /* to be sure that this is not a CSDA calc. */
+                    etap = electron_data.etae_ms1[MXEKE*imed + leil]*eil +
+                        electron_data.etae_ms0[MXEKE*imed + leil];
+                    eta = 0.25*etap*(electron_data.xcc[imed])/
+                        (electron_data.blcc[imed])/tau/(tau+2);
+                    g_r = (1.0 + 2.0*eta)*log(1.0 + 1.0/eta) - 2.0;
+                    g_m = log(0.5*tau/tauc) + (1.0 + ((tau + 2.0)/(tau + 1.0))*
+                        ((tau + 2.0)/(tau + 1.0)))*log(2.0*(tau - tauc + 2.0)/
+                        (tau + 4.0)) - 0.25*(tau + 2.0)*
+                        (tau + 2.0 + 2.0*(2.0*tau + 1.0)/
+                        ((tau + 1.0)*(tau + 1.0)))*log((tau + 4.0)*(tau - tauc)
+                        /tau/(tau - tauc + 2.0)) +
+                        0.5*(tau - 2.0*tauc)*(tau + 2.0)*(1.0/(tau - tauc) -
+                        1.0/((tau + 1.0)*(tau + 1.0)));
+                    
+                    if (g_m < g_r){
+                        g_m /= g_r;
+                    }
+                    else{
+                        g_m = 1.0;
+                    }
+                    si2e = 1.0 - g_m*sum_Z/sum_Z2;
+                }
+                else{
+                    si2e = 1.0;
+                }
+            }
+            else{
+                si2e = 1.0;
+            }
+            
+            electron_data.blcce1[MXEKE*imed + i - 1] =
+                (si2e - si1e)*electron_data.eke1[imed];
+            electron_data.blcce0[MXEKE*imed + i - 1] =
+                si2e - electron_data.blcce1[MXEKE*imed + i - 1]*eil;
+            si1e = si2e;
+        }
+        electron_data.blcce1[MXEKE*imed + neke - 1] =
+            electron_data.blcce1[MXEKE*imed + neke - 2];
+        electron_data.blcce0[MXEKE*imed + neke - 1] =
+            electron_data.blcce0[MXEKE*imed + neke - 2];
+        
+    }
+    
+    /* Cleaning */
+    fclose(fp);
+    free(spin_buffer);
+    free(spin_buffer_int);
+    free(earray);
+    free(eta_array);
+    free(fmax_array);
+    free(c_array);
+    free(g_array);
+    free(elarray);
+    free(farray);
+    free(af);
+    free(bf);
+    free(cf);
+    free(df);
+    
+    return;
+}
+
+void cleanSpin() {
+    
+    free(spin_data.spin_rej);
+    
+    return;
+}
+
+void listSpin() {
+    
+    /* Get file path from input data */
+    char output_folder[128];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+    
+    char file_name[256];
+    strcpy(file_name, output_folder);
+    strcat(file_name, "spin_data.lst");
+    
+    /* List spin data to output file */
+    FILE *fp;    
+    if ((fp = fopen(file_name, "w")) == NULL) {
+        printf("Unable to open file: %s\n", file_name);
+        exit(EXIT_FAILURE);
+    }
+    
+    fprintf(fp, "Listing spin data: \n");
+    fprintf(fp, "b2spin_min = %f\n", spin_data.b2spin_min);
+    fprintf(fp, "dbeta2i = %f\n", spin_data.dbeta2i);
+    fprintf(fp, "espml = %f\n", spin_data.espml);
+    fprintf(fp, "dleneri = %f\n", spin_data.dleneri);
+    fprintf(fp, "dqq1i = %f\n", spin_data.dqq1i);
+    fprintf(fp, "\n");
+    
+    int idx;
+
+    for (int imed=0; imed<media.nmed; imed++) {
+        fprintf(fp, "For medium %s: \n", media.med_names[imed]);
+        fprintf(fp, "spin_rej = \n");
+        
+        for (int i=0; i<=MXE_SPIN1; i++) {
+            for (int j=0; j<= MXQ_SPIN; j++) {
+                for (int k=0; k<=MXU_SPIN; k++) {
+                    idx = imed*2*(MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                    + i*(MXQ_SPIN + 1)*(MXU_SPIN + 1)
+                    + j*(MXU_SPIN + 1) + k;
+                    fprintf(fp, "spin_rej[%d][0][%d][%d][%d] = %15.5f, "
+                            "spin_rej[%d][1][%d][%d][%d] = %15.5f\n",
+                            imed, i, j, k, spin_data.spin_rej[idx],
+                            imed, j, i, k, spin_data.spin_rej[idx +
+                                (MXE_SPIN1 + 1)*(MXQ_SPIN + 1)*(MXU_SPIN + 1)]);
+                    
+                }
+            }
+        }
+        fprintf(fp, "\n");
+    }
+    
+    fclose(fp);
+    
+    return;
+}
+
+void setSpline(double *x, double *f, double *a, double *b, double *c,
+                double *d,int n) {
+    
+    double s,r;
+    int m1,m2,m,mr;
+    m1=2;
+    m2=n-1;
+    s=0;
+    for (m=1;m<=m2;m++){
+        d[m-1]=x[m]-x[m-1];
+        r=(f[m]-f[m-1])/d[m-1];
+        c[m-1]=r-s;
+        s=r;
+    }
+    s=0;
+    r=0;
+    c[0]=0;
+    c[n-1]=0;
+    
+    for(m=m1; m<=m2; m++){
+        c[m-1]=c[m-1]+r*c[m-2];
+        b[m-1]=2*(x[m-2]-x[m])-r*s;
+        s=d[m-1];
+        r=s/b[m-1];
+    }
+    mr=m2;
+    
+    for(m=m1; m<=m2; m++){
+        c[mr-1]=(d[mr-1]*c[mr]-c[mr-1])/b[mr-1];
+        mr=mr-1;
+    }
+    
+    for(int m=1; m<=m2; m++){
+        s=d[m-1];
+        r=c[m]-c[m-1];
+        d[m-1]=r/s;
+        c[m-1]=3*c[m-1];
+        b[m-1]=(f[m]-f[m-1])/s-(c[m-1]+r)*s;
+        a[m-1]=f[m-1];
+    }
+    
+    return;
+}
+
+double spline(double s, double *x, double *a, double *b, double *c,
+              double *d, int n) {
+    
+    int  m_lower,m_upper,direction,m,ml,mu,mav;
+    double q;
+    if( x[0] > x[n-1] ) {
+        direction = 1;
+        m_lower = n;
+        m_upper = 0;
+    }
+    else {
+        direction = 0;
+        m_lower = 0;
+        m_upper = n;
+    }
+    if ( s >= x[m_upper + direction-1] ) {
+        m = m_upper + 2*direction - 1;
+    }
+    else if( s <= x[m_lower-direction]) {
+        m = m_lower - 2*direction + 1;
+    }
+    else {
+        /* Perform a binary search to find the interval s is in */
+        ml = m_lower; mu = m_upper;
+        while ( abs(mu-ml) > 1 ) {
+            mav = (ml+mu)/2;
+            if( s < x[mav-1] ) { mu = mav; }
+            else             { ml = mav; }
+        }
+        m = mu + direction - 1;
+    }
+    q = s - x[m-1];
+    double spline = a[m-1] + q*(b[m-1]+ q*(c[m-1] + q*d[m-1]));
+    return spline;
+    
+}
+
+double spinRejection(int imed, int qel,	double elke, double beta2, double q1,
+	double cost, int *spin_index, int is_single, struct Spinr *spin_r) {
+	
+    /* This function determines the rejection function due to spin effects */
+	int k;
+	double ai; double aj; double ak; double qq1; double xi;
+	double rnno;
+
+	if (*spin_index) {
+		/* Determine the energy and q1 index */
+		*spin_index = 0;    // i.e. false
+
+		if (beta2 >= spin_data.b2spin_min) {
+			ai = (beta2 - spin_data.b2spin_min)*spin_data.dbeta2i;
+			spin_r->i = (int)ai;
+			ai -= (double)spin_r->i;
+			spin_r->i += MXE_SPIN + 1;
+		}
+		else if (elke > spin_data.espml) {
+			ai = (elke - spin_data.espml)*spin_data.dleneri;
+			spin_r->i = (int)ai;
+			ai -= spin_r->i;
+		}
+		else {
+			spin_r->i = 0;
+			ai = -1.0f;
+		}
+
+		rnno = setRandom();
+		if (rnno < ai) {
+			spin_r->i += 1;
+		}
+
+		if (is_single) {
+			spin_r->j = 0;
+		}
+		else {
+			qq1 = 2.0*q1;
+			qq1 = qq1/(1.0 + qq1);
+			aj = qq1*spin_data.dqq1i;
+
+			spin_r->j = (int)aj;
+			if (spin_r->j >= MXQ_SPIN) {
+				spin_r->j = MXQ_SPIN;
+			}
+			else {
+				aj -= (double)spin_r->j;
+				rnno = setRandom();
+				if (rnno < aj) {
+					spin_r->j += 1;
+				}
+			}
+		}
+	}
+
+	xi = sqrt(0.5*(1.0 - cost));
+	ak = xi*MXU_SPIN;
+	k = (int)ak;
+	ak -= (double)k;
+
+	double spin_rej = spin_data.spin_rej[
+        imed*2*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        spin_r->i*(MXQ_SPIN+1)*(MXU_SPIN+1) + spin_r->j*(MXU_SPIN+1) + k];
+	double spin_rej2 =	spin_data.spin_rej[
+        imed*2*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        qel*(MXE_SPIN1+1)*(MXQ_SPIN+1)*(MXU_SPIN+1) + 
+        spin_r->i*(MXQ_SPIN+1)*(MXU_SPIN+1) + spin_r->j*(MXU_SPIN+1) + (k+1)];
+	double spin_reject = (1.0 - ak)*(spin_rej) + ak*spin_rej2;
+
+	return spin_reject;
+}
+
+void sscat(int imed, int qel, double chia2, double elke, double beta2,
+	double *cost, double *sint) {
+	/* single elastic scattering */
+
+	/* The following auxiliary variables must persist among calls to 
+	spin_rejection */
+	int spin_index = 1; // i.e. true
+	struct Spinr spin_r;
+
+	int qzero;
+	double xi; double rejf; double rnno;
+
+	do {
+		xi = setRandom();
+		xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+		*cost = 1.0 - xi;
+
+		/* We always consider spin effects turned on */
+		qzero = 0;
+
+		rejf = spinRejection(imed, qel, elke, beta2, qzero,	
+            *cost,	&spin_index, 1,	&spin_r);
+
+		rnno = setRandom();
+	} while (rnno > rejf);
+
+	*sint = sqrt(xi*(2.0 - xi));
+
+	return;
+}
 
 struct Mscat mscat_data;
 
@@ -2516,6 +3776,1774 @@ void listMscat() {
     return;
 }
 
+void mscat(int imed, int qel, int *spin_index, int *find_index, 
+    double elke, double beta2, double q1,  double lambda, double chia2, 
+    double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r) {
+    /* Function to sample multiple electron scattering angles from the exact 
+	distribution resulting from elastic scattering, described by the 
+	screened Rutherford cross times Mott correction (i.e. spin_effects=true) */
+	double xi, rejf, rnno;
+	double explambda = exp(-lambda);
+
+    if (lambda <= 13.8) {
+		/* Test only for lambda = 13.8 implies a 1E-6 error, i.e. large 
+		lambda cases that contribute to the forward no-scattering amplitude */
+		double sprob = setRandom();
+		if (sprob < explambda) {
+			/* It was a no scattering event */
+			*cost = 1.0;
+			*sint = 0.0;
+			return;
+		}
+
+		double wsum = (1.0 + lambda)*explambda;
+		if (sprob <  wsum) {
+			do {
+				xi = setRandom();
+				xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+				*cost = 1.0 - xi;
+
+				rejf = spinRejection(imed, qel,	elke, beta2, q1,
+					*cost, spin_index, 0, spin_r);
+				rnno = setRandom();
+			} while (rnno > rejf);
+
+			*sint = sqrt(xi*(2.0 - xi));
+			return;
+		}
+
+		if (lambda <= 1) {
+			int icount = 0;
+			double wprob = explambda;
+			double sinz, cosz;
+			double phi;
+			wsum = explambda;
+			*cost = 1.0;
+			*sint = 0.0;
+
+			do {
+				icount += 1;
+				if (icount > 20) {
+					break;
+				}   // to avoid underflow if sprob very close to 1
+
+				wprob = wprob * lambda / icount;
+				wsum = wsum + wprob;
+				do {
+					/* the following applies to the case where spin effects are 
+					enabled */
+					xi = setRandom();
+					xi = 2.0*chia2*xi/(1.0 - xi + chia2);
+					cosz = 1.0 - xi;
+
+					rejf = spinRejection(imed,	qel, elke, beta2, q1,
+						cosz, spin_index, 0, spin_r);
+					rnno = setRandom();
+				} while (rnno > rejf);
+
+				sinz = xi * (2.0 - xi);
+				if (sinz > 1.0E-20) {
+					sinz = sqrt(sinz);
+					xi = setRandom();
+					phi = xi*6.2831853;
+					*cost = (*cost)*cosz - *sint*sinz*cos(phi);
+					*sint = sqrt(fmax(0.0, (double)((1.0  - 
+                        (*cost))*(1.0 + (*cost)))));
+				}
+			} while (wsum <= sprob);
+			return;
+		}
+	}
+
+	/* It was a multiple scattering event. Sample the angle from the q^(2+) 
+	surface */
+	if (lambda <= LAMBMAX_MS) {
+		double ai, aj;
+		double llmbda = log(lambda);
+
+		if (*find_index) {
+			/* First find lambda bin */
+			ai = llmbda*mscat_data.dllambi;
+			m_scat->i = (int)ai;
+			ai -= (double)m_scat->i;
+			xi = setRandom();
+
+			if (xi < ai) {
+				m_scat->i += 1;
+			}
+
+			if (q1 < QMIN_MS) {
+				m_scat->j = 0;
+			}
+			else if (q1 < QMAX_MS) {
+				aj = q1*mscat_data.dqmsi;
+				m_scat->j = (int)aj;
+				aj -= (double)m_scat->j;
+				xi = setRandom();
+				if (xi < aj) {
+					m_scat->j += 1;
+				}
+			}
+			else {
+				m_scat->j = MXQ_MS;
+			}
+
+			/* Calculate omega2 */
+			if (llmbda < 2.2299) {
+				m_scat->omega2 = chia2*(lambda + 4.0)*(1.347006	+ 
+                    llmbda*(0.209364 - llmbda*(0.45525 - llmbda*(0.50142 - 
+                    0.081234*llmbda))));
+			}
+			else {
+				m_scat->omega2 = chia2*(lambda + 4.0)*(-2.77164	+ 
+                    llmbda*(2.94874 - llmbda*(0.1535754	- llmbda*0.00552888)));
+
+			}
+			*find_index = 0;    // i.e. false
+		}
+
+		/* If this is a re-iteration with the same lambda, then omega2, i, k 
+		should be defined in the previous section */
+		int counter2 = 0;
+		int k;
+		double a; double ak; double u; double du; double x1;
+		do {
+			counter2++;
+			xi = setRandom();
+			ak = xi*MXU_MS;
+			k = ak;
+			ak -= k;
+            
+			if (ak > mscat_data.wms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k]) {
+				k = mscat_data.ims_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			}
+
+			a = mscat_data.fms_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			u = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k];
+			du = mscat_data.ums_array[m_scat->i*(MXQ_MS + 1)*(MXU_MS + 1) + 
+                (m_scat->j)*(MXU_MS + 1) + k] - u;
+			xi = setRandom();
+
+			if (fabs(a) < 0.2) {
+				x1 = 0.5*(1.0 - xi)*a;
+				u += xi*du*(1.0 + x1*(1.0 - xi*a));
+			}
+			else {
+				u -= du/a*(1.0 - sqrt(1.0 + xi*a*(2.0 + a)));
+			}
+
+			xi = m_scat->omega2*u/(1.0 + 0.5*m_scat->omega2 - u);
+			if (xi > 1.99999) {
+				xi = 1.99999;
+			}
+
+			/* Some machines have trouble when xi is very close to 2 
+			in subsequent calculations */
+			*cost = 1.0 - xi;
+
+			rejf = spinRejection(imed, qel,	elke, beta2, q1,
+				*cost, spin_index, 0, spin_r);
+
+			rnno = setRandom();
+		} while (rnno > rejf);
+
+		*sint = sqrt(xi*(2.0 - xi));
+	}
+
+    return;    
+}
+
+double msdist(int imed, int iq, double rhof, double de, double tustep, 
+    double eke, double *x_final, double *y_final, double *z_final, 
+    double *u_final, double *v_final, double *w_final) {
+    
+    int qel = (1 + iq)/2;   // = 0 for electrons, = 1 for positrons
+    
+    /* The following auxiliary variables must persist among calls to mscat and 
+    related functions */
+    struct Mscats m_scat;
+    struct Spinr spin_r;
+
+    double blccc = electron_data.blcc[imed];
+    double xcccc = electron_data.xcc[imed];
+
+    /* Commonly used factors */
+    double e = eke - 0.5*de;
+	double tau = e/RM;  // average kinetic energy over the step divided by 
+                        // electron mass
+	double tau2 = pow(tau, 2.0);
+	double epsilon = de/eke;    // fractional energy loss
+	double epsilonp = de/e;
+
+	e *= (1.0 - pow(epsilonp, 2.0)*(6.0 + 10.0*tau + 5.0*tau2)/(24.0*tau2 + 
+        72.0*tau + 48.0));
+
+	double p2 = e*(e + 2.0*RM); // average momentum over the step
+	double beta2 = p2/(p2 + pow(RM, 2.0));  // speed at e in units of c, squared
+	double chia2 = xcccc/(4.0*p2*blccc);    // screening angle, note: our chia2 
+										    // is Moliere's chia2/4
+    
+	double lambda = 0.5*tustep*rhof*blccc/beta2;    // distance in number of 
+                                                    // elastic scattering mean 
+                                                    // free paths for each 
+                                                    // sample of the multiple 
+                                                    // scattering angle
+
+	double temp2 = 0.166666*(4.0 + tau*(6.0 + tau*(7.0 + tau*(4.0 + tau))))*
+        (epsilonp/((tau + 1.0)*(tau + 2.0)))*
+        (epsilonp/((tau + 1.0)*(tau + 2.0)));   // auxiliary variable for energy
+                                                // loss corrections
+	lambda *= (1.0 - temp2);
+
+	double elke = log(e);
+	int lelke = pwlfInterval(imed, elke,    // adjusted to C index standard
+        electron_data.eke1, electron_data.eke0) - 1;
+
+    if (lelke < 0) {    // This should normally not happen
+		lelke = 0;
+		elke = (1.0 - electron_data.eke0[imed])/electron_data.eke1[imed];
+	}
+
+    double etap;    // correction to the screening parameter derived from PWA
+	double xi_corr; // correction to the first MS moments due to spin
+	double gamma;   // q2/q1
+
+	if (qel == 0) {
+		etap = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.etae_ms1, electron_data.etae_ms0);
+		xi_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q1ce_ms1, electron_data.q1ce_ms0);
+		gamma = pwlfEval(MXEKE*imed+lelke, elke, electron_data.q2ce_ms1, 
+            electron_data.q2ce_ms0);
+	}
+	else {
+		etap = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.etap_ms1, electron_data.etap_ms0);
+		xi_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q1cp_ms1, electron_data.q1cp_ms0);
+		gamma = pwlfEval(MXEKE*imed+lelke, elke, 
+            electron_data.q2cp_ms1, electron_data.q2cp_ms0);
+	}
+
+    double ms_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+        electron_data.blcce1, electron_data.blcce0);    // correction to the 
+                                                        // first MS moments due 
+                                                        // to spin
+	chia2 *= etap;
+
+    lambda /= (etap*(1.0 + chia2));
+	lambda *= ms_corr;
+	double chilog = log(1.0 + 1.0/chia2);
+	double q1 = 2.0*chia2*(chilog*(1.0 + chia2) - 1.0);	// first moment of the 
+                                                        // single scattering 
+                                                        // cross section
+
+	gamma = 6.0*chia2*(1.0 + chia2)*(chilog*(1.0 + 2.0*chia2) - 2.0)/q1*gamma;
+	double xi = q1*lambda; // first GS - moment
+
+    /* Sample first substep scattering angle */
+	int find_index = 1; // i.e. true
+	int spin_index = 1;
+	double w1;      // cosine of the first substep polar scattering angle
+	double sint1;   // sine of the first substep polar scattering angle
+	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
+		lambda,	chia2,	&w1, &sint1, &m_scat, &spin_r);
+
+	double cphi1; double sphi1;  // sine and cosine of the first azimuthal angle 
+    selectAzimuthalAngle(&cphi1, &sphi1);
+    
+    /* Sample second substep scattering angle */
+	double w2;      // cosine of the second substep polar scattering angle
+	double sint2;   // sine of the second substep polar scattering angle
+	mscat(imed, qel, &spin_index, &find_index, elke, beta2, xi, 
+		lambda,	chia2,	&w2, &sint2, &m_scat, &spin_r);
+
+	double cphi2; double sphi2; // sine and cosine of the second azimuthal angle 
+    selectAzimuthalAngle(&cphi2, &sphi2);
+
+    /* Final direction of motion, relative to z-axis */
+	double u2 = sint2*cphi2;
+	double v2 = sint2*sphi2;
+	double u2p = w1*u2 + sint1*w2;
+
+    /* Direction cosines after scattering */
+    double us = u2p*cphi1 - v2*sphi1;
+    double vs = u2p*sphi1 + v2*cphi1;
+    double ws = w1*w2 - sint1*u2;
+	
+    /* Calculate delta, b, c */
+    xi *= 2*xi_corr;
+
+    double eta = setRandom();   // randomization of substep transport distances
+    double eta1 = 0.5*(1.0 - eta);
+    double delta = 0.9082483 - (0.1020621 - 0.0263747*gamma)*xi;
+
+    double temp1 = 2.0 + tau;   // auxilarity variables for energy 
+							    // loss corrections
+	double temp = (2.0 + tau*temp1)/((tau + 1.0)*temp1);
+
+	/* Take logarithmic dependence into account as well */
+	temp -= (tau + 1.0)/((tau + 2.0)*(chilog*(1.0 + chia2) - 1.0));
+	temp *= epsilonp;
+	temp1 = 1.0 - temp;
+	delta += 0.40824829*(epsilon*(tau + 1.0)/((tau + 2.0)*(chilog*(1.0 + 
+        chia2) - 1.0)*(chilog*(1.0 + 2.0*chia2) - 2.0))	- 0.25*pow(temp, 2.0));
+	double b = eta*delta;           // substep transport distance
+	double c = eta*(1.0 - delta);   // substep transport distance	
+
+	/* Calculate transport direction cosines */
+	double w1v2 = w1 * v2;
+    double ut = b*sint1*cphi1 + c*(cphi1*u2 - sphi1*w1v2) + eta1*us*temp1;
+    double vt = b*sint1*sphi1 + c*(sphi1*u2 + cphi1*w1v2) + eta1*vs*temp1;
+    double wt = eta1*(1.0 + temp) + b*w1 + c*w2 + eta1*ws*temp1;
+
+	/* Calculate transport distance */
+	double ustep = tustep*sqrt(pow(ut, 2.0) + pow(vt, 2.0) + pow(wt, 2.0));
+
+	/* Rotate into the final direction of motion and transport relative to 
+    original direction of motion */
+    int np = stack.np;
+    double x0 = stack.x[np];
+    double y0 = stack.y[np];
+    double z0 = stack.z[np];
+    double u0 = stack.u[np];
+    double v0 = stack.v[np];
+    double w0 = stack.w[np];    
+	double sint02 = pow(u0, 2.0) + pow(v0, 2.0);
+
+    if (sint02 > 1.0E-20) {
+		double sint0  = sqrt(sint02);
+        double sint0i = 1.0/sint0;
+        double cphi0  = sint0i*u0;
+        double sphi0  = sint0i*v0;
+
+        /* Scattering angles */
+        u2p = w0*us + sint0*ws;
+        ws = w0*ws - sint0*us;
+        us = u2p*cphi0 - vs*sphi0;
+        vs = u2p*sphi0 + vs*cphi0;
+
+        /* Transport angles */
+        u2p = w0*ut + sint0*wt;
+        wt = w0*wt - sint0*ut;
+        ut = u2p*cphi0 - vt*sphi0;
+        vt = u2p*sphi0 + vt*cphi0;
+	}
+	else {
+        wt = w0*wt; ws = w0*ws;
+	}
+
+    /* Transport the particle. Transfer new position and direction */
+    *x_final = x0 + tustep*ut;
+    *y_final = y0 + tustep*vt;
+    *z_final = z0 + tustep*wt;
+    *u_final = us;
+    *v_final = vs;
+    *w_final = ws;
+    
+    return ustep;
+}
+
+/* CSDA related definitions */
+double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
+                     double elkei, double elkef) {
+    /* The following function computes the path-length traveled while going from
+	energy ekei to energy ekef, both energies being in the same
+	interval of the PWL function, whose index is given by lekle. 
+	elkei and elkef are the logarithms of ekei and ekef */
+
+	/* This function is based on logarithmic interpolation as
+	used in EGSnrc (i.e. dedx = a + b*Log(E) ) and a power series expansion
+	of the ExpIntegralEi function that is the result of the integration */
+
+	double dedxmid; 
+    double aux;
+	double fedep = 1.0 - ekef/ekei;
+
+	/* First evaluate the logarithm of the energy midpoint */
+	double elktmp = 0.5*(elkei + elkef +
+		0.25*pow(fedep, 2.0)*(1.0 + fedep*(1.0 + 0.875*fedep)));
+
+	if (iq < 0) {
+		dedxmid = pwlfEval(MXEKE*imed+lelke, elktmp, 
+            electron_data.ededx1, electron_data.ededx0);
+		dedxmid = 1.0/dedxmid;
+		aux = electron_data.ededx1[MXEKE*imed+lelke]*dedxmid;
+	}
+	else {
+		dedxmid = pwlfEval(MXEKE*imed+lelke, elktmp, 
+            electron_data.pdedx1, electron_data.pdedx0);
+		dedxmid = 1.0/dedxmid;
+		aux = electron_data.pdedx1[MXEKE*imed+lelke]*dedxmid;
+	}
+
+	aux = aux*(1.0 + 2.0*aux)*pow(fedep/(2.0 - fedep),2.0)/6.0;
+
+	return fedep*ekei*dedxmid*(1.0 + aux);
+}
+
+double computeEloss(int imed, int iq, int irl, double rhof, 
+    double tustep, double range, double eke, double elke, int lelke) {
+
+    /* This function computes the energy loss due to sub-threshold
+	processes for a path-length tustep. The energy at the beginning of
+	the step is eke, elke = Log(eke), lelke is the interval index for 
+	the PWLF interpolation */
+	double aux = 0.0;
+	double dedxmid;
+	double de;
+	double fedep;
+    double elktmp;
+    double eketmp;
+    int lelktmp;
+	int qel = (1+iq)/2;
+
+	/* Calculate the range between the initial energy and the next lower energy 
+	on the interpolation grid */
+	double tuss = range - 
+        electron_data.range_ep[qel*media.nmed*MXEKE+imed*MXEKE+lelke]/rhof;
+
+	if (tuss >= tustep) {
+		/* Final energy is in the same interpolation bin. Use the EGSnrc 
+		logarithmic interpolation method */
+
+		if (iq < 0) {
+			dedxmid = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.ededx1, electron_data.ededx0);
+			aux = electron_data.ededx1[imed*MXEKE+lelke]/dedxmid;
+		}
+		else {
+			dedxmid = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.pdedx1, electron_data.pdedx0);
+			aux = electron_data.pdedx1[imed*MXEKE+lelke]/dedxmid;
+		}
+
+		de = dedxmid*tustep*rhof;
+		fedep = de/eke;
+		de *= (1.0 - 0.5*fedep*aux*(1.0 - 0.333333*fedep*(aux - 1.0 - 
+            0.25*fedep*(2.0 - aux*(4.0 - aux)))));
+	}
+	else {
+		/* Must find first the table index where the step ends using 
+		pre-calculated ranges */
+		lelktmp = lelke;
+
+		/* now tuss is the range of the final energy 
+		electron scaled to the default mass density 
+		from PEGS4 */
+		tuss = (range - tustep)*rhof;
+
+		if (tuss <= 0) {
+			de = eke - pegs_data.te[imed]*0.99;
+		}
+		/* i.e., if the step we intend to take is longer than the particle 
+        range, the particle energy goes down to the threshold (eke is the 
+        initial particle energy) */
+
+		/* Originally the entire energy was lost, but msdist is not prepared to 
+        deal with such large eloss fractions */
+		else {
+			while (tuss < electron_data.range_ep[qel*media.nmed*MXEKE+
+                    imed*MXEKE+lelktmp]) {
+				lelktmp -= 1;
+			}
+			elktmp = (lelktmp+2 - electron_data.eke0[imed])/
+                electron_data.eke1[imed];
+			eketmp = electron_data.e_array[imed*MXEKE+lelktmp+1];
+
+			tuss = (electron_data.range_ep[qel*media.nmed*MXEKE+imed*MXEKE
+                +lelktmp+1]-tuss)/rhof;
+
+			if (iq < 0) {
+				dedxmid = pwlfEval(MXEKE*imed+lelktmp, elktmp, 
+                    electron_data.ededx1, electron_data.ededx0);
+				aux = electron_data.ededx1[MXEKE*imed+lelktmp]/dedxmid;
+			}
+			else {
+				dedxmid = pwlfEval(MXEKE*imed+lelktmp, elktmp, 
+                    electron_data.pdedx1, electron_data.pdedx0);
+				aux = electron_data.pdedx1[MXEKE*imed+lelktmp]/dedxmid;
+			}
+			de = dedxmid*tuss*rhof;
+			fedep = de / eketmp;
+			de *= (1.0 - 0.5*fedep*aux*(1.0 - 0.333333*fedep*(aux - 1.0 - 
+                0.25*fedep*(2.0 - aux*(4.0 - aux)))));
+
+			de += eke - eketmp;
+		}
+	}
+
+	return de;
+}
+
+/* Annihilation in rest */
+void rannih() {
+    
+    /* Pick random direction for first gamma */
+    double rnno;
+    int np = stack.np;
+    
+    /* Polar angle selection */
+    rnno = setRandom();
+    double costhe = 2.0*rnno - 1;
+    double sinthe = sqrt(fmax(0.0, (1.0 - costhe)*(1.0 + costhe)));
+    
+    
+    /* Azimuthal angle selection */
+    rnno = setRandom();
+    double cosphi; double sinphi;
+    selectAzimuthalAngle(&cosphi, &sinphi);
+    
+    /* First photon */
+    stack.e[np] = RM;
+    stack.iq[np] = 0;
+    stack.u[np] = sinthe*cosphi;
+    stack.v[np] = sinthe*sinphi;
+    stack.w[np] = costhe;
+    
+    /* Second photon */
+    np +=1;
+    stack.e[np] = RM;
+    stack.iq[np] = 0;
+    transferProperties(np, np-1);
+    stack.u[np] = -1.0*stack.u[np-1];
+    stack.v[np] = -1.0*stack.v[np-1];
+    stack.w[np] = -1.0*stack.w[np-1];
+    
+    /* Update stack */
+    stack.np = np;
+    
+    return;
+}
+
+/* Bremsstrahlung */
+void brems() {
+    /* This function samples Bremmsstrahlung energy using Coulomb corrected 
+	Bethe-Heitler above 50 MeV and Bethe-Heitler below 50 MeV. This option 
+	corresponds to ibr_nist = 0 in the EGSnrc platform */
+
+	int np = stack.np;	
+	int irl = stack.ir[np];
+	int imed = region.med[irl];
+	
+    double eie = stack.e[np];   // energy of incident electron
+	double phi1; double phi2;   // screening function
+	
+	/* Decide which distribution to use:
+	Coulomb corrected Bethe-Heitler above 50 MeV
+	Bethe-Heitler elsewhere */
+	int l;
+	if(eie < 50.0) { 
+		l = 1; // BH
+	}
+	else { 
+		l = 3; // BH Coulomb corrected
+	}
+	int l1 = l + 1;
+
+	double ekin = eie - RM; // kinetic incident energy
+	double brmin = pegs_data.ap[imed]/ekin;
+	double waux = -log(brmin);
+
+	double a; double b; double c;   // direction cosines of incident electron.
+	double sinpsi; double sindel; double cosdel;    // all used for rotations.
+	double ztarg;   // (Zeff^1/3/111)^2, used for 2BS angle sampling
+	double tteie;   // total energy in units of rest energy
+	double y2maxi;
+	double z2maxi;
+
+	// We will sample the photon emmision angle from KM-2BS (ibrdst=1) or 
+    // from the leading term (ibrdst=0).
+    a = stack.u[np];
+    b = stack.v[np];
+    c = stack.w[np];
+
+    sinpsi = pow(a, 2.0) + pow(b, 2.0);
+    if(sinpsi > 1.0E-20) {
+        sinpsi = sqrt(sinpsi);
+        sindel = b/sinpsi;
+        cosdel = a/sinpsi;
+    }
+
+    ztarg = pair_data.zbrang[imed];
+    tteie = eie/RM;
+    /* Electron velocity in speed of light units */
+    double beta = sqrt((tteie - 1.0)*(tteie + 1.0))/tteie;
+
+    double y2max = 2.0*beta*(1.0 + beta)*tteie*tteie;   // maximum possible 
+                                                        // scaled angle
+    y2maxi = 1.0/y2max;
+    double z2max = y2max + 1.0;
+    z2maxi = sqrt(z2max);
+
+	/* We do not implement Bremsstrahlung splitting */
+
+	double aux;
+	double br;                      // energy fraction of secondary photon
+	double delta;                   // scaled momentum transfer
+	double rnno06; double rnno07;   // random numbers
+	double rejf;                    // screening rejection function
+	double ese;                     // total energy of scattered electron
+	double esg;                     // energy of emitted photon
+
+	do { 
+		rnno06 = setRandom();
+		rnno07 = setRandom();
+		br = brmin*exp(rnno06*waux);
+		esg = ekin*br; 
+		ese = eie - esg;
+		delta = esg/eie/ese*pair_data.delcm[imed]; 
+		aux = ese/eie;
+
+		if( delta < 1.0 ) {
+			phi1 = pair_data.dl1[imed*8+l-1] + delta*(pair_data.dl2[imed*8+l-1]+ 
+                delta*pair_data.dl3[imed*8+l-1]);
+			phi2 = pair_data.dl1[imed*8+l1-1]+delta*(pair_data.dl2[imed*8+l1-1]+
+					delta*pair_data.dl3[imed*8+l1-1]);
+		}
+		else {
+			phi1 = pair_data.dl4[imed*8+l-1] + pair_data.dl5[imed*8+l-1]*
+                log(delta + pair_data.dl6[imed*8+l-1]);
+			phi2 = phi1;
+		}
+		rejf = (1.0 + pow(aux, 2.0))*phi1 - 2.0*aux*phi2/3.0;		
+	} while(rnno07 >= rejf);
+
+	/* Setup the new photon */
+	np += 1;
+	stack.e[np] = esg;
+	stack.iq[np] = 0;
+	transferProperties(np, np-1);
+
+	/* Now we need to decide the direction of the photon */
+    double y2tst;                   // scaled angle, costhe = 1 - 2*y2tst/y2max
+    double ttese = ese/RM;          // new electron energy in units of RM
+    double esedei = ttese/tteie;    // new total energy over old total energy
+                                    // used for angle rejection function calls
+    double rejmax;
+    double rjarg1 = 1.0 + esedei*esedei; 
+    double rjarg2 = rjarg1 + 2.0*esedei;
+    double rjarg3; 
+
+    double rtest = 1.0; double rejtst= 0.0;
+    aux = 2.0*ese*tteie/esg;
+    aux = pow(aux, 2.0);
+    double aux1 = aux*ztarg;
+
+    if(aux1 > 10.0) {
+        rjarg3 = -log(pair_data.zbrang[imed]) + (1.0 - aux1)/pow(aux1, 2.0);
+    }
+    else {
+        rjarg3 = log(aux/(1.0 + aux1));
+    }
+    rejmax = rjarg1*rjarg3 - rjarg2;
+
+    while(rtest >= rejtst) {
+        y2tst = setRandom();
+        rtest = setRandom();
+        double aux3 = z2maxi/(y2tst + (1.0 - y2tst)*z2maxi);
+        rtest = rtest*aux3*rejmax;
+        y2tst = pow(aux3, 2.0) - 1.0;
+        double y2tst1 = esedei*y2tst/pow(aux3, 4.0);
+        double aux4 = 16.0*y2tst1 - rjarg2;
+        double aux5 = rjarg1 - 4.0*y2tst1;
+
+        if (rtest < aux4 + aux5*rjarg3){
+            break;
+        }
+
+        double aux2 = log(aux/(1.0 + aux1/pow(aux3, 4.0)));
+        rejtst = aux4 + aux5*aux2;
+    }
+
+	double costhe = 1.0 - 2.0*y2tst*y2maxi;
+    double sinthe = sqrt(fmax(0.0 ,(1.0 - pow(costhe, 2.0))));
+
+    /* Azimuthal angle sampling */
+    double cphi; double sphi;
+    selectAzimuthalAngle(&cphi, &sphi);
+
+    if( sinpsi >= 1.0E-10 ) {
+        double us = sinthe*cphi;
+        double vs = sinthe*sphi;
+
+        stack.u[np] = c*cosdel*us - sindel*vs + a*costhe;
+        stack.v[np] = c*sindel*us + cosdel*vs + b*costhe;
+        stack.w[np] = c*costhe - sinpsi*us;
+    }
+    else {
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi;
+        stack.w[np] = c*costhe;
+    }
+
+	/* Set energy of the electron */
+	stack.e[np-1] = ese;
+	
+	/* Update stack index */
+	stack.np = np;
+
+    return;
+}
+
+/* Moller scattering */
+void moller() {
+
+    /* In this function we sample moller scattering, for this process to happen 
+	we need a minimum energy, if we don't have that energy the electron
+	is in a continual energy loss, the theory applied uses conservation of 
+	4-momentum and the moller formula for the cross section (James Bjorken, 
+	Sidney Drell: Relativistische Quantenmechanik (Relativistic quantum 
+	mechanics E. Akademischer Verlag Spektrum, Heidelberg 1998) */
+
+    int np = stack.np;
+    int irl = stack.ir[np];
+    int imed = region.med[irl];
+    double eie = stack.e[np];   // total energy of incident electron
+	double ekin = eie - RM;	    // kinetic energy of incident electron
+
+    if(ekin <= 2.0*pegs_data.te[imed]) { 
+		/* Kinetic energy threshold not reached, therefore a Moller scattering
+		cannot happen */
+		return;
+	}
+
+	double t0 = ekin/RM;    // kinetic energy of incident electron in RM units
+	double e0 = t0 + 1.0;   // total energy of incident electron in RM units
+	double extrae = eie - pegs_data.thmoll[imed]; // energy above Moller thresh
+
+	double g2; double g3;   // used for rejection function calculation
+	g2 = pow(t0, 2.0)/pow(e0, 2.0); 
+	g3 = (2.0*t0 + 1.0)/pow(e0, 2.0);
+	
+	double br;  // kinetic energy fraction to lowew energy electron
+	double gmax = (1.0 + 1.25*g2);  // maximum value of the rejection function
+	double rejf4;   // rejection function
+	double r;
+	double rnno27; double rnno28;   // random numbers
+
+	do {
+		/* To retry if rejected */
+		rnno27 = setRandom();
+
+        /* set epsilon, which is the ratio between the scattered kinetic energy 
+        and the kinetic incident energy */
+		br = pegs_data.te[imed]/(ekin - extrae*rnno27); 
+		r = br/(1.0 - br);
+		rnno28 = setRandom();
+		rejf4 = (1.0 + g2*pow(br, 2.0) + r*(r - g3)); // rejection function 
+													  // multiplied by gmax
+		rnno28 *= gmax;
+	} while(rnno28 > rejf4);
+
+	double ekse2 = br*ekin;     // kinetic energy of secondary electron #2
+	double ese1 = eie - ekse2;  // energy of secondary electron #1
+	double ese2 = ekse2 + RM;   // energy of secondary electron #2
+
+	stack.e[np] = ese1;
+	stack.e[np+1] = ese2;
+
+	double h1 = (eie + RM)/ekin;  // used for polar scattering angle calculation
+	double costh = h1*(ese1 - RM)/(ese1 + RM); // polar scattering angle squared
+	double sinthe = sqrt(1.0 - costh);
+	double costhe = sqrt(costh);
+
+    struct Uphi uphi;
+	uphi21(&uphi, costhe, sinthe);
+
+	/* Related change and setup for "new" electron */
+	np += 1;
+	stack.np = np; // it is needed to update stack index for uphi32()
+	stack.iq[np] = -1;
+	costh = h1*(ese2 - RM)/(ese2 + RM);
+	sinthe = -sqrt(1.0 - costh);
+	costhe = sqrt(costh);
+	uphi32(&uphi, costhe, sinthe);
+
+    return;
+}
+
+/* Bhabha scattering */
+void bhabha() {
+
+    /* A call to this function is defined and calculated as a Bhabha scattering
+	which impart to the secondary electron enough energy that it will be 
+	transported discretely. I.e. E=AE or T=TE. However, it is not guaranteed
+	that the final positron will have this much energy. The exact Bhabha 
+	differential cross section is used */
+
+	int np = stack.np;
+    int irl = stack.ir[np];
+    int imed = region.med[irl];
+	double eip = stack.e[np];   // total energy of incident positron
+	double ekin = eip - RM;     // kinetic energy of incident positron		
+	double t0 = ekin/RM;        // kinetic energy of incident positron RM units
+	double e0 = t0 + 1.0;       // total energy of incident positron in RM units
+
+	double yy = 1.0/(t0 + 2.0);
+	double beta2 = (pow(e0, 2.0) - 1.0)/pow(e0, 2.0);   // incident positron 
+													    // velocity in c units
+	double ep0 = pegs_data.te[imed]/ekin;   // minimum fractional energy of a 
+										    // secondary 'electron'
+	double ep0c = 1.0 - ep0;
+	double yp = 1.0 - 2.0*yy;
+
+    /* Used in rejection function calculation */
+	double b1; double b2; double b3; double b4; 
+	b4 = pow(yp, 3.0);
+	b3 = b4 + pow(yp, 2.0);
+	b2 = yp*(3.0 + pow(yy, 2.0));
+	b1 = 2.0 - pow(yy, 2.0);
+
+	/* Sample br from min(ep0) to 1.0 */
+	double rnno03; double rnno04;   // random numbers
+	double br;      // kinetic energy fraction of the secondary 'electron'
+	double rejf2;   // rejection function
+
+	do { 
+		rnno03 = setRandom();
+		br = ep0/(1.0 - ep0c*rnno03);
+
+		/* Apply rejection function */
+		rnno04 = setRandom();
+		rejf2 = (1.0 - beta2*br*(b1 - br*(b2 - br*(b3 - br*b4)))); 
+	} while(rnno04 > rejf2);
+
+	/* If electron got more than positron, move positron pointer and 
+    reflect br */
+	if(br < 0.5) { 
+		stack.iq[np+1] = -1;
+	}
+	else { 
+		stack.iq[np] = -1;
+		stack.iq[np+1] = 1;
+		br = 1.0 - br;
+		/* This puts positron on top of the stack if it has less energy */
+	}
+
+	/* Divide up the energy. */
+	br = fmax(br, 0.0);     // avoids possible negative number due to round-off
+	double ekse2 = br*ekin;      // kinetic energy of secondary 'electron' 2
+	double ese1 = eip - ekse2;   // energy of secondary 'electron' 1
+	double ese2 = ekse2 + RM;    // energy of secondary 'electron' 2
+	stack.e[np] = ese1;
+	stack.e[np+1] = ese2;
+
+	/* Bhabha angles are uniquely determined by kinematics */
+	double h1 = (eip + RM)/ekin; // used in direction cosine calculations
+
+	/* Direction cosine change for 'old' electron */
+	double costh = fmin(1.0, h1*(ese1 - RM)/(ese1 + RM)); 
+
+	double sinthe = sqrt(1.0 - costh);
+	double costhe = sqrt(costh);
+    struct Uphi uphi;
+	uphi21(&uphi, costhe, sinthe);
+
+	np += 1;
+	stack.np = np; // it is needed to update stack index for uphi32()
+
+	costh = h1*(ese2 - RM)/(ese2 + RM);
+	sinthe = -sqrt(1.0 - costh);
+	costhe = sqrt(costh);
+	uphi32(&uphi, costhe, sinthe);
+
+    return;
+}
+
+/* Annihilation in flight */
+void annih() {
+
+    /* Gamma spectrum for two gamma in-flight positron annihilation using 
+	scheme based on Heitler's formulae */
+	int np = stack.np;
+	double avip = stack.e[np] + RM; // available energy of incident positron, 
+									// i.e. electron assumed to be at rest.
+	double a = avip/RM; // total energy in units of the electron's rest energy
+	double g, t, p; // energy, kinetic energy and momentum in units of RM
+	g = a - 1.0;
+	t = g - 1.0;
+	p = sqrt(a*t);
+
+	double pot = p/t;                       // "p over t"
+	double ep0 = 1.0/(a+p);                 // minimum fractional energy
+	double wsamp = log((1.0 - ep0)/ep0);    // the logarithm is calculated
+										    // outside the loop
+
+	double aa = stack.u[np]; // for inline rotations
+	double bb = stack.v[np];
+    double cc = stack.w[np];
+    double sinpsi = pow(aa, 2.0) + pow(bb, 2.0);
+	double sindel; double cosdel;   // for inline rotations
+
+	if(sinpsi > 1.0E-20) { 
+		sinpsi = sqrt(sinpsi);
+		sindel = bb/sinpsi;
+		cosdel = aa/sinpsi;
+	}
+
+	double ep;  // fractional energy of the more energetic photon
+	double rejf;                    // rejection function
+	double rnno01; double rnno02;   // random numbers 
+
+	do { 
+		rnno01 = setRandom();
+		ep = ep0*exp(rnno01*wsamp);
+
+		/* Now decide whether to accept */
+        rnno02 = setRandom();
+		rejf = 1.0 - pow(ep*a - 1.0, 2.0)/(ep*(pow(a, 2.0) - 2.0));
+	} while(rnno02 > rejf);
+
+	/* Set-up energies. */
+	double esg1 = avip*ep;   // energy of secondary gamma 1
+	stack.e[np] = esg1;
+	stack.iq[np] = 0;
+	transferProperties(np, np);
+
+	double costhe = fmin(1.0, (esg1 - RM)*pot/esg1);
+	double sinthe = sqrt(1.0 - pow(costhe, 2.0));
+
+	/* The following variables are for azimuthal angle sampling */
+	double sphi; double cphi;   // sine and cosine of the azimuthal angle
+    selectAzimuthalAngle(&cphi, &sphi);
+    
+	double us; double vs; // for inline rotations
+	if(sinpsi >= 1.0E-10) { 
+		us = sinthe*cphi;
+		vs = sinthe*sphi;
+		
+		stack.u[np] = cc*cosdel*us - sindel*vs + aa*costhe;
+        stack.v[np] = cc*sindel*us + cosdel*vs + bb*costhe; 
+	    stack.w[np] = cc*costhe - sinpsi*us;
+	}
+	else { 
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi; 
+	    stack.w[np] = cc*costhe;
+	}
+
+	np += 1;
+	double esg2 = avip - esg1;
+	stack.e[np] = esg2;
+	stack.iq[np] = 0;
+	transferProperties(np, np-1);
+
+	costhe = fmin(1.0, (esg2 - RM)*pot/esg2);
+	sinthe = -sqrt(1.0 - pow(costhe, 2.0));
+
+	if(sinpsi >= 1.0E-10) { 
+		us = sinthe*cphi;
+		vs = sinthe*sphi;
+		
+        stack.u[np] = cc*cosdel*us - sindel*vs + aa*costhe;
+        stack.v[np] = cc*sindel*us + cosdel*vs + bb*costhe; 
+	    stack.w[np] = cc*costhe - sinpsi*us;
+	}
+	else { 
+        stack.u[np] = sinthe*cphi;
+        stack.v[np] = sinthe*sphi; 
+	    stack.w[np] = cc*costhe;
+	}
+
+	/* Update stack index */
+	stack.np = np;
+
+    return;
+}
+
+/* Simulation of electron step */
+void electron() {
+    
+    int np = stack.np;              // stack pointer
+    int irl = stack.ir[np];         // region index
+    int imed = region.med[irl];     // medium index of current region
+    double rhof = region.rhof[irl]; // mass density ratio
+    double edep = 0.0;              // deposited energy by particle
+    
+    struct Uphi uphi;
+    double eie = stack.e[np];       // energy of incident electron
+    int iq = stack.iq[np];          // charge of current particle.
+    int qel = (1 + iq)/2;           // = 0 for electrons, = 1 for positrons
+    int medold = imed;               
+
+    double rnno;
+
+    /* First check of electron cut-off energy */
+    if(eie <= region.ecut[irl]) {
+        
+        edep = stack.e[np] - RM;    // get energy deposition for user
+
+        /* Call ausgab and drop energy on spot */
+        ausgab(edep);
+        
+        /* Positron annihilation section */
+        if(iq > 0) {
+            /* The particle is a positron. Produce annihilation gammas
+             if edep < eie */
+            if(edep < eie) {
+                rannih();
+                
+                // Now discard the positron and take normal return to
+                // follow the annihilation gammas.
+                return;
+            }
+        }
+        
+        stack.np -= 1;
+        return;
+    }
+    
+    double elke;    // logarithm of kinetic energy
+    int lelke;   // index into the energy grid of tabulated funtions
+    double sigratio = 0.0;
+    double rfict = 0.0; // rejection function for fictitius cross section.
+
+    do {    // start of tstep loop
+        
+        /* Go through this loop each time we recompute distance to an
+         interaction */
+        int compute_tstep = 1;  // mean free path resampled. Calculate
+                                // distance to the interaction in ustep loop
+        
+        double eke = eie - RM;  // kinetic energy of the particle
+        double demfp;           // differential electron mean free path
+        
+        double sigf;            // cross section before density scaling but
+                                // after a step
+        double sig0;            // cross section before density scaling but
+                                // before a step
+        double dedx0;           // stopping power before density scaling
+        
+        double ustep;            // projected transport distance in the
+                                // direction of motion at the start of the step
+        
+        if(imed != -1) {
+            /* Not vacuum. The electron mean free path must be sampled to 
+            determine how far is the next interaction */
+            
+            /* Select electron mean free path */
+            rnno = setRandom();
+            if(rnno == 0.0) {
+                rnno = 1.0E-30;
+            }
+            demfp = fmax(-log(rnno), EPSEMFP);
+            
+            /* Prepare to aproximate cross section. First obtain energy
+                interval of current particle */
+            elke = log(eke);
+            
+            /* lelke adjusted to C standard */
+            lelke = pwlfInterval(imed, elke, electron_data.eke1,
+                                    electron_data.eke0) - 1;
+
+            /* Evaluate sig0 for the fictitious method. This version uses
+            sub-threshold energy loss as a measure of path-length. Cross
+            section is actual cross section divided by restricted
+            stopping power */
+
+            if(electron_data.sig_ismonotone[qel*media.nmed+imed]) {
+                if(iq < 0) {
+                    sig0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.esig1, electron_data.esig0);
+                    dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.ededx1, electron_data.ededx0);
+                    sig0 /= dedx0;
+                }
+                else {
+                    sig0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.psig1, electron_data.psig0);
+                    dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.pdedx1, electron_data.pdedx0);
+                    sig0 /= dedx0;
+                }
+            }
+            else {
+                /* Use the global maximum values determined in the host */
+                if(iq < 0) {
+                    sig0 = electron_data.esig_e[imed];
+                }
+                else {
+                    sig0 = electron_data.psig_e[imed];
+                }
+            }
+            
+        } // end of non-vacuum test
+        
+        do {    // start of ustep loop
+            /* For each particle check step distance with user geometry. 
+            Compute size of maximum acceptable step, which is limited by 
+            multiple scattering or other approximations */
+
+			int call_howfar;    // indicates if the boundary crossing 
+								// algorithm (BCA) requires a call 
+								// to howfar
+			
+			int do_single;      // if true, exact BCA requires single scattering
+			int called_msdist;  // true, normal CH transport, false, BCA invoked
+
+			double tstep;   // total pathlength to the next discrete interaction
+			double tustep;	// total pathlength of the electron step
+
+			double total_de;    // total energy loss to next discrete interaction
+			double ekef;		// kinetic energy after a step
+
+			double ekei;        // used to calculate tstep from demfp
+			double elkei;	    // log(ekei)
+			double tuss;	    // sampled path-length to a single scattering 
+                                // event
+			double total_tstep = 0.0; // total path-length to next discrete 
+                                // interaction
+
+			double range;       // electron range
+
+			double p2;      // electron momentum times c, squared
+			double beta2;   // electron speed in units of c, squared
+			double etap;	// Correction to Moliere screening angle from 
+                            // PWA cross sections
+
+			double tvstep;	// curved path-length calculated from tustep
+			double de;		// energy loss to dedx
+
+			double x_final; // position at the end of step
+            double y_final; 
+            double z_final; 
+			double u_final; // direction at the end of step
+            double v_final;
+            double w_final;
+
+			if (imed == -1) {   // vacuum
+				tstep = 10.0E8; // i.e. infinity
+				ustep = tstep;
+				tustep = ustep;
+				call_howfar = 1;	// always howfar is called for vacuum 
+									// steps
+			}
+			else {  // non-vacuum
+				/* Update density of medium */
+                rhof = region.rhof[irl];
+
+				/* As the cross-section is interactions per energy loss, no 
+                density scaling is required here */
+				if (sig0 <= 0.0) {
+					/* This can happen if the threshold for brems (ap + rm)
+					is greater than ae. Ask for step same as vacuum */
+					tstep = 10.0E8; //  i.e. infinity
+					sig0 = 1.0E-15;
+				}
+				else {
+					/* Calculate tstep from differential electron mean 
+					free path. Once the sub-threshold processes energy
+					loss to the next discrete interaction is determined,
+					the corresponding path-length is calculated */
+
+					if (compute_tstep) {
+						total_de = demfp/sig0;
+						ekef = eke - total_de;
+
+						if (ekef <= electron_data.e_array[imed*MXEKE+0]) {
+							tstep = 10.0E8; // i.e. infinity
+						}
+						else {
+							double elkef = log(ekef);
+
+							/* lelkef adjusted to C standard */
+							int lelkef = pwlfInterval(imed, elkef, 
+                                electron_data.eke1, electron_data.eke0) - 1;
+
+							if (lelkef == lelke) {
+								/* Initial and final energy are in the same
+								interval of the PWLF function */
+
+								/* The following computes the path-length 
+								traveled while going from energy eke to ekef */
+								tstep = computeDrange(imed, iq, lelke, 
+                                    eke, ekef, elke, elkef);
+
+							}
+							else {
+								/* Initial and final energy are in 
+								different intervals of the PWL function */
+
+								/* The calculation of the path length must be 
+                                divided among the intervals of the PWL 
+                                function */
+
+								/* Calculate range from ekef to E(lelkfef+1) 
+                                and from E(lelke) to eke and add the pre-calc 
+								range from E(lelfke+1) to E(lelke) */
+
+								/* First calculate range from eke to E(lelke) */
+								ekei = electron_data.e_array[imed*MXEKE+lelke];
+								elkei = (lelke+1 - electron_data.eke0[imed])/
+                                    electron_data.eke1[imed];
+								tuss = computeDrange(imed, iq, lelke, 
+                                    eke, ekei, elke, elkei);
+
+								/* Then from E(lelfke+1) to ekef */
+								ekei = electron_data.e_array[imed*MXEKE+
+                                    lelkef+1];
+								elkei = ((lelkef+2) - electron_data.eke0[imed])/
+                                    electron_data.eke1[imed];
+								tstep = computeDrange(imed, iq, lelkef, 
+                                    ekei, ekef, elkei, elkef);
+
+								/* Finally add the pre-calc range from 
+                                E(lelfke+1) to E(lelke) */
+								tstep += tuss + 
+            electron_data.range_ep[qel*media.nmed*MXEKE+imed*MXEKE+lelke] - 
+            electron_data.range_ep[qel*media.nmed*MXEKE+imed*MXEKE+lelkef+1];
+							}
+						}
+
+						total_tstep = tstep;
+						compute_tstep = 0;  // i.e. false
+					}   // end of compute_tstep if sentence
+
+					tstep = total_tstep/rhof; // non-default density scaling
+
+				}	// end sig if-else
+
+				/* Calculate stopping power */
+				if (iq < 0) {   // electron
+					dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.ededx1, electron_data.ededx0);
+				}
+				else {  // positron
+					dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                        electron_data.pdedx1, electron_data.pdedx0);
+				}
+				double dedx = rhof*dedx0;   // stopping power after density 
+                                            // scaling
+
+				/* Determine maximum step-size */
+				double tmxs = pwlfEval(imed*MXEKE+lelke, elke, 
+                    electron_data.tmxs1, electron_data.tmxs0);
+				tmxs /= rhof;
+
+				/* Compute the range to E_min(med), where e_min is the 
+				first energy in the table. Limit the electron step to 
+				this range */
+                ekei = electron_data.e_array[imed*MXEKE+lelke];
+                elkei = (lelke+1 - electron_data.eke0[imed])/
+                        electron_data.eke1[imed];
+                range = computeDrange(imed, iq, lelke, eke, ekei, 
+                        elke, elkei);
+                range += electron_data.range_ep[qel*media.nmed*MXEKE+
+                    imed*MXEKE+lelke];
+				range /= rhof;
+
+				/* The following finds the minimum between tstep, tmxs and 
+				range. The result is stored in tustep, the total 
+				path-length to the next interaction */
+				tustep = fmin(fmin(tstep, tmxs), range);
+
+				/* Obtain perpendicular distance to nearest boundary */
+				double tperp = hownear();
+				stack.dnear[np] = tperp;
+
+				/* Set the minimum step size for a CH step, due to efficiency 
+				considerations. It is calculated with eke and elke */
+				double blccl = rhof*electron_data.blcc[imed];
+				double xccl = rhof*electron_data.xcc[imed];
+				p2 = eke*(eke+2.0*RM);
+				beta2 = p2/(p2 + pow(RM, 2.0));
+
+				/* Now calculate the elastic scattering MFP, based on PWA
+				cross sections */
+				if (iq < 0) {
+					etap = pwlfEval(MXEKE*imed+lelke, elke, 
+                        electron_data.etae_ms1, electron_data.etae_ms0);
+				}
+				else {
+					etap = pwlfEval(MXEKE*imed+lelke, elke, 
+                        electron_data.etap_ms1, electron_data.etap_ms0);
+				}
+
+				double ms_corr = pwlfEval(MXEKE*imed+lelke, elke, 
+                    electron_data.blcce1, electron_data.blcce0);
+				blccl = blccl/etap/(1.0 + 0.25*etap*xccl/blccl/p2)*ms_corr;
+
+				double ssmfp = beta2/blccl;   // mean free path to one single 
+                                                // elastic scattering event
+
+				/* Finally, set the the minimum CH step size */
+				double skindepth = SKIN_DEPTH_FOR_BCA*ssmfp;
+
+				/* Adjust tustep with respect to perpendicular distance to
+				closest boundary and minimum CH step size */
+				tustep = fmin(tustep, fmax(tperp, skindepth));
+
+				/* The transport logic below is determined by the boolean 
+				variables call_howfar and do_single */
+				int is_chstep = 0;  // i.e. false
+                
+				if ((tustep <= tperp) && (tustep > skindepth)) {
+					/* The particle is further a boundary than skindepth, 
+					so perform a normal CH step */
+
+					call_howfar = 0;    // do not call howfar
+					do_single = 0;      // ms => no single scattering
+					called_msdist = 1;  // remember than msdist has been called
+
+					/* Compute energy loss due to sub-threshold processes 
+					for a path-length tustep */
+					de = computeEloss(imed, iq, irl, rhof,
+					    tustep,	range, eke, elke, lelke);
+
+					tvstep = tustep;
+					is_chstep = 1;  // i.e. true
+
+					/* msdist models multiple elastic scattering and 
+					spatial deflections for the path-length tustep.
+					ustep is the straight-line distance between 
+					initial and final position of the particle */                    
+					ustep = msdist(imed, iq, rhof, de, tustep, eke,
+                    	&x_final, &y_final, &z_final,
+                        &u_final, &v_final, &w_final);                    
+				}
+				else {
+                    
+					/* We are within a skindepth from a boundary, invoke
+					the boundary-crossing algorithm (exact) */					
+					called_msdist = 0;  // remember that msdist has not 
+										// been called.
+
+					/* Now cross the boundary in single scattering mode.
+					We use always exact BCA */
+
+					/* sample the distance to a single scattering event */
+					rnno = setRandom();
+					if (rnno < 1.0E-30) {
+						rnno = 1.0E-30;
+					}
+
+                    /* Calculate number of mean free paths (elastic scattering cross-section)*/
+					double lambda = (-1.0)*log(1.0 - rnno); 
+					double lambda_max = 0.5*blccl*RM/dedx*pow((eke/RM+1.0),3.0);
+                                        
+                    if (lambda >= 0.0 && lambda_max > 0.0) {
+                        if (lambda < lambda_max) {
+						tuss = lambda*ssmfp*(1.0 - 0.5*lambda/lambda_max);
+                        }
+                        else {
+                            tuss = 0.5*lambda*ssmfp;
+                        }
+                        if (tuss < tustep) {
+                            tustep = tuss;
+                            do_single = 1;  // i.e. true
+                        }
+                        else {
+                            do_single = 0;  // i.e. false
+                        }    
+                    }
+                    else {
+                        printf("Warning!, lambda = %f > lambda_max = %f\n", 
+                            lambda, lambda_max);
+                        do_single = 0;
+                        stack.np -= 1;
+                        return;
+                    }
+                    
+					ustep = tustep;
+					if (ustep < tperp) {
+						call_howfar = 0;
+					}
+					else {
+						call_howfar = 1;
+					}
+				} // end of skindepth if-else
+			}   // end of non-vacuum if-else 
+			
+			int irold = stack.ir[np];   // region before transport
+            int irnew = stack.ir[np];   // default new region is old region
+			int idisc = 0;		        // default is no discard
+			
+			if (call_howfar) {
+				howfar(&idisc, &irnew, &ustep);
+			}			
+			
+			/* Now see if user requested discard through idisc, returned 
+			by howfar */
+			if (idisc > 0) {
+				/* User requested electron discard */
+                if(iq > 0) {
+                    edep = stack.e[np] + RM;
+                }
+                else {
+                    edep = stack.e[np] - RM;
+                }
+
+                /* Call ausgab and drop energy on spot */
+                ausgab(edep);
+
+                /* Positron annihilation section */
+                if(iq > 0) {
+                    /* The particle is a positron. Produce annihilation gammas
+                    if edep < eie */
+                    if(edep < eie) {
+                        rannih();
+                        
+                        // Now discard the positron and take normal return to
+                        // follow the annihilation gammas.
+                        return;
+                    }
+                }
+                
+                stack.np -= 1;
+                return;
+			}
+            
+            if (ustep < 0) {
+                /* Negative ustep */
+                printf("Warning!, negative ustep = %f\n", ustep);
+                ustep = 0.0;
+            }
+			double vstep;	// transport distance after truncation by howfar
+			
+			if (ustep == 0.0f || imed == -1) {
+				/* Do fast step */
+				if (ustep != 0.0f) {
+					/* Step in vacuum */
+					vstep = ustep;  // vstep is ustep truncated by howfar
+					tvstep = vstep; // tvstep is the total curved path 
+                                    // associated with vstep
+
+					/* Transport the particle */
+                    stack.x[np] += stack.u[np]*vstep;
+                    stack.y[np] += stack.v[np]*vstep;
+                    stack.z[np] += stack.w[np]*vstep;
+                    stack.dnear[np] -= vstep;
+				}   // end of vacuum step
+
+				/* Electron region change */
+                if(irnew != irold) {
+                    stack.ir[np] = irnew;
+                    irl = irnew;
+				    imed = region.med[irl];
+                }			
+
+                /* First check of electron cut-off energy */
+                if(eie <= region.ecut[irl]) {
+                    
+                    edep = stack.e[np] - RM;    // get energy deposition for user
+                    
+                    /* Call ausgab and drop energy on spot */
+                    ausgab(edep);
+                    
+                    /* Positron annihilation section */
+                    if(iq > 0) {
+                        /* The particle is a positron. Produce annihilation 
+                        gammas if edep < eie */
+                        if(edep < eie) {
+                            rannih();
+                            
+                            /* Now discard the positron and take normal return
+                            to follow the annihilation gammas */
+                            return;
+                        }
+                    }
+                    
+                    stack.np -= 1;
+                    return;
+                }	
+
+				break;  // exit ustep loop. Go try another big step in 
+                        // (possibly) new medium
+			} 
+            vstep = ustep;
+
+			if (call_howfar) {
+				/* We are in single scattering mode */
+				tvstep = vstep;
+				if (tvstep != tustep) {
+					/* Boundary was crossed. Shut off single scattering */
+					do_single = 0; // i.e. false
+				}
+
+				/* Fourth order technique for dedx. Must be done for a 
+				single scattering step */
+				de = computeEloss(imed, iq, irl, rhof, 
+                    tvstep,	range, eke,	elke, lelke);
+			}
+			else {
+				/* call_howfar = false. Step has not been reduced due to 
+				boundaries */
+				tvstep = tustep;
+				if (called_msdist == 0) {
+					/* Second order technique for dedx. Already done in a 
+					normal CH step with call to msdist */
+					de = computeEloss(imed,	iq, irl, rhof,
+						tvstep,	range, eke, elke, lelke);
+				}
+			}   // end of call_howfar if-else sentence.
+            
+			edep = de;          // energy deposition variable for user
+			ekef = eke - de;    // final kinetic energy
+            
+			/* Now do multiple scattering */
+			double sinthe; double costhe; // deflection angle
+			if (called_msdist == 0) { // everything done if called_msdist = true
+				if (do_single) {    // Single scattering
+                    /* kinetic energy used to sample MS angle 
+                    (normally midpoint) */
+					double ekems = fmax(ekef, region.ecut[irl] - RM);
+					
+                    p2 = ekems*(ekems + 2.0*RM);
+					beta2 = p2/(p2 + pow(RM, 2.0));
+					
+                    /* Multiple scattering screening angle */
+                    double chia2 = electron_data.xcc[imed]/
+                        (4.0*electron_data.blcc[imed]*p2);
+
+					/* We always consider spin effects */
+					double elkems = log(ekems);
+					int lelkems = pwlfInterval(imed, elkems, 
+                        electron_data.eke1, electron_data.eke0) - 1;
+
+					if (iq < 0) {
+						etap = pwlfEval(MXEKE*imed+lelkems, elkems, 
+                            electron_data.etae_ms1, electron_data.etae_ms0);
+					}
+					else {
+						etap = pwlfEval(MXEKE*imed+lelkems, elkems, 
+                            electron_data.etap_ms1, electron_data.etap_ms0);
+					}
+					chia2 *= etap;
+
+					sscat(imed, qel, chia2,	elkems,	beta2, &costhe,	&sinthe);
+
+				}
+				else {
+					// No deflection in single scattering mode.
+					sinthe = 0.0f;
+					costhe = 1.0f;
+				}
+			} // end of called_msdist if sentence
+
+			/* We now know distance and amount of energy loss for this 
+			step, and the scattering angle. Now is time to do the 
+			transport */
+
+			if (called_msdist == 0) {
+				/* Calculate deflection and scattering. This has not been done 
+                in msdist */
+				x_final = stack.x[np] + stack.u[np]*vstep;
+                y_final = stack.y[np] + stack.v[np]*vstep;
+                z_final = stack.z[np] + stack.w[np]*vstep;
+
+				if (do_single) {
+					/* Apply the deflection, save call to uphi if no 
+					deflection in a single scattering mode */
+					uphi21(&uphi, costhe, sinthe);
+					u_final = stack.u[np];
+                    v_final = stack.v[np];
+                    w_final = stack.w[np];
+				}
+				else {
+					u_final = stack.u[np];
+                    v_final = stack.v[np];
+                    w_final = stack.w[np];
+				}
+			}
+
+            /* The electron step is about to occur, score the energy 
+            deposited */
+            ausgab(edep);
+
+			/* Transport the particle */
+			stack.x[np] = x_final;
+            stack.y[np] = y_final;
+            stack.z[np] = z_final;
+			stack.u[np] = u_final;
+            stack.v[np] = v_final;
+            stack.w[np] = w_final;
+			stack.dnear[np] -= vstep;
+			irold = stack.ir[np];		// save the previous region
+
+			/* Now done with multiple scattering, update energy and see if 
+			below cut below substracts only energy deposited */
+			eie -= edep;
+			stack.e[np] = eie;
+
+            if(irnew == irl && eie <= region.ecut[irl]) {
+                    
+                    edep = stack.e[np] - RM;    // get energy deposition for user
+                    
+                    /* Call ausgab and drop energy on spot */
+                    ausgab(edep);
+                    
+                    /* Positron annihilation section */
+                    if(iq > 0) {
+                        /* The particle is a positron. Produce annihilation gammas
+                        if edep < eie */
+                        if(edep < eie) {
+                            rannih();
+                            
+                            // Now discard the positron and take normal return to
+                            // follow the annihilation gammas.
+                            return;
+                        }
+                    }
+                    
+                    stack.np -= 1;
+                    return;
+                }
+
+			medold = imed;  // save previous region
+			if (imed != -1) {
+				eke = eie - RM; // update kinetic energy
+				elke = log(eke);
+
+				/* Get updated interval */
+				lelke = pwlfInterval(imed, elke, 
+                        electron_data.eke1, electron_data.eke0) - 1;
+			}
+
+			/* Electron region change */
+            if(irnew != irold) {
+                stack.ir[np] = irnew;
+                irl = irnew;
+                imed = region.med[irl];
+            }
+			
+            /* Check electron cut-off energy */
+			if(eie <= region.ecut[irl]) {
+        
+                edep = stack.e[np] - RM;    // get energy deposition for user
+                
+                /* Call ausgab and drop energy on spot */
+                ausgab(edep);
+                
+                /* Positron annihilation section */
+                if(iq > 0) {
+                    /* The particle is a positron. Produce annihilation gammas
+                    if edep < eie */
+                    if(edep < eie) {
+                        rannih();
+                        
+                        // Now discard the positron and take normal return to
+                        // follow the annihilation gammas.
+                        return;
+                    }
+                }
+                
+                stack.np -= 1;
+                return;
+            }
+
+			if (imed != medold) {
+				break;  // exit to tstep loop
+			}
+
+			/* Update demfp. As energy loss is used as the 'path-length' 
+			variable, it just substracts the energy loss for the step */
+			demfp -= de*sig0; 
+			total_de -= de;
+			total_tstep -= tvstep*rhof;
+			if (total_tstep < 1.0E-9) {
+				demfp = 0.0;
+			}
+
+        } while (demfp >= EPSEMFP); // end of ustep loop
+
+        /* If following is true, it means that particle has carried out a fast 
+    	step in vacuum or has changed medium. In that case, go to beginning of 
+		tstep loop */
+		
+		if ((imed != medold) || (ustep == 0.0) || (imed == -1)) {
+			continue; // start at beginning of tstep loop
+		}
+
+		/* Compute final sigma to see if resample is needed. This will take 
+		the energy variation of the sigma into account using the 
+		fictitious sigma method */
+		if (iq < 0) {
+			sigf = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.esig1, electron_data.esig0);
+			dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.ededx1, electron_data.ededx0);
+			sigf /= dedx0;
+		}
+		else {
+			sigf = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.psig1, electron_data.psig0);
+			dedx0 = pwlfEval(imed*MXEKE+lelke, elke, 
+                electron_data.pdedx1, electron_data.pdedx0);
+			sigf /= dedx0;
+		}
+		
+		sigratio = sigf/sig0;
+		rfict = setRandom();
+
+    } while (rfict >= sigratio);    // end of tstep loop
+        
+    /* Now sample electron interaction */
+    if (iq < 0) {
+		/* electron. Check branching ratio */
+		double ebr1 = pwlfEval(imed*MXEKE+lelke, elke,  // e- branching ratio 
+            electron_data.ebr11, electron_data.ebr10);  // into brem
+		rnno = setRandom();
+		if (rnno <= ebr1) {
+			/* It was Bremsstrahlung */
+			brems();            
+		}
+		else {
+			/* It was Moller, but first check the kinematics. However, if 
+			EII is on we should still permit an interaction, even if 
+			E < Moller threashold as EII interactions go down to the 
+			ionization threshold which may be less than thmoll */
+			if (stack.e[np] <= pegs_data.thmoll[imed]) {
+				/* Not enough energy for Moller, so force it to be a 
+				Bremsstrahlung, provided ok kinematically */
+
+				if (ebr1 <= 0) {    // Brems not allowed either.
+                    /* Return to shower to re-enter electron() */
+					return;
+				}
+				else {
+					brems();
+				}
+			}
+			else {
+				moller();
+			}
+		}
+	}
+	else {
+		/* Positron interaction. pbr1 = brems/(brems + bhabha + annih) */
+		double pbr1 = pwlfEval(imed*MXEKE+lelke, elke,  // e+ branching ratio
+            electron_data.pbr11, electron_data.pbr10);	// into brem.
+		rnno = setRandom();
+		if (rnno < pbr1) {
+			/* It was bremsstrahlung */
+			brems();
+		}
+		else {
+			/* Decide between bhabha and annihilation. 
+			pbr2 = (brems + bhabha)/(brems + bhabha + annih) */
+			double pbr2 = pwlfEval(imed*MXEKE+lelke, elke,  //e+ branching ratio
+                electron_data.pbr21, electron_data.pbr20);  // into brem or Bha.	
+			if (rnno < pbr2) {
+				/* It is bhabha */
+				bhabha();
+			}
+			else {
+				/* It is in-flight annihilation */
+                annih();
+			}   // end pbr2 if-else sentence		
+		}
+	}
+    
+    /* Return to shower */
+    return;
+}
+
+/* Simulation of the particle history */
 void shower() {
  
     while (stack.np >= 0) {
@@ -2789,7 +5817,7 @@ int readPegsFile(int *media_found) {
             
             /* Read elements, same algorithm */
             for (int m = 0; m < pegs_data.ne[imed]; m++) {
-                struct Element element = { 0 };
+                struct Element element = {{ 0 }};
                 fgets(buffer, BUFFER_SIZE, fp);
                 char s[BUFFER_SIZE];
                 char s2[BUFFER_SIZE];

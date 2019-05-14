@@ -106,6 +106,14 @@ extern void cleanRandom(void);
 /******************************************************************************/
 
 /*******************************************************************************
+* User code definitions. The following functions must be provided by the user
+* in its code.
+*******************************************************************************/
+extern void ausgab(double edep);    // scoring function
+extern void howfar(int *idisc, int *irnew, double *ustep); // geometry functions
+extern double hownear(void);
+
+/*******************************************************************************
 * Definitions for Monte Carlo simulation of particle transport 
 *******************************************************************************/
 
@@ -144,19 +152,6 @@ struct Uphi {
     /* This structure holds data saved between uphi() calls */
     double A, B, C;
     double cosphi, sinphi;
-};
-
-struct Mscats {
-    /* This structure holds data saved between mscat calls */
-    int i;
-    int j;
-    double omega2;
-};
-
-struct Spinr {
-    /* This structure holds data saved between spinRejection calls */
-    int i;
-    int j;
 };
 
 extern void transferProperties(int npnew, int npold);
@@ -254,6 +249,9 @@ extern void compton(void);
 /* Photo electric effect definitions */
 extern void photo(void);
 
+/* Simulation of photon step */
+extern void photon(void);
+
 /*******************************************************************************
 * Electron physical processes definitions
 *******************************************************************************/
@@ -319,6 +317,44 @@ struct Electron {
 };
 extern struct Electron electron_data;
 
+extern void cleanElectron(void);
+extern void listElectron(void);
+
+/* Spin data */
+const int MXE_SPIN = 15;
+const int MXE_SPIN1 = 2*MXE_SPIN+1;
+const int MXQ_SPIN = 15;
+const int MXU_SPIN = 31;
+
+struct Spin {
+    double b2spin_min;
+    double dbeta2i;
+    double espml;
+    double dleneri;
+    double dqq1i;
+    double *spin_rej;
+};
+extern struct Spin spin_data;
+
+struct Spinr {
+    /* This structure holds data saved between spinRejection calls */
+    int i;
+    int j;
+};
+
+extern void initSpinData(int nmed);
+extern void cleanSpin(void);
+extern void listSpin(void);
+extern void setSpline(double *x, double *f, double *a, double *b, double *c,
+                double *d,int n);
+extern double spline(double s, double *x, double *a, double *b, double *c,
+              double *d, int n);
+extern double spinRejection(int imed, int qel,	double elke, double beta2, 
+    double q1, double cost, int *spin_index, int is_single, 
+    struct Spinr *spin_r);
+extern void sscat(int imed, int qel, double chia2, double elke, double beta2,
+	double *cost, double *sint);
+
 /* Screened Rutherford MS data */
 const int MXL_MS = 63;
 const int MXQ_MS = 7;
@@ -340,9 +376,49 @@ struct Mscat {
 };
 extern struct Mscat mscat_data;
 
-extern void readRutherfordMscat(int nmed);
-void initMscatData();
+struct Mscats {
+    /* This structure holds data saved between mscat calls */
+    int i;
+    int j;
+    double omega2;
+};
 
+extern void readRutherfordMscat(int nmed);
+extern void initMscatData();
+extern void cleanMscat(void);
+extern void listMscat(void);
+extern void mscat(int imed, int qel, int *spin_index, int *find_index, 
+    double elke, double beta2, double q1,  double lambda, double chia2, 
+    double *cost, double *sint, struct Mscats *m_scat, struct Spinr *spin_r);
+extern double msdist(int imed, int iq, double rhof, double de, double tustep, 
+    double eke, double *x_final, double *y_final, double *z_final, 
+    double *u_final, double *v_final, double *w_final);
+
+/* CSDA related definitions */
+extern double computeDrange(int imed, int iq, int lelke, double ekei,  
+    double ekef, double elkei, double elkef);
+extern double computeEloss(int imed, int iq, int irl, double rhof, 
+    double tustep, double range, double eke, double elke, int lelke);
+
+/* Annihilation in rest */
+extern void rannih(void);
+
+/* Bremsstrahlung */
+extern void brems(void);
+
+/* Moller scattering */
+extern void moller(void);
+
+/* Bhabha scattering */
+extern void bhabha(void);
+
+/* Annihilation in flight */
+extern void annih(void);
+
+/* Simulation of electron step */
+extern void electron(void);
+
+/* Simulation of the particle history */
 extern void shower(void);
 
 /* Media definitions */
