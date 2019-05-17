@@ -1,5 +1,5 @@
 /******************************************************************************
- ompMC - An hybrid parallel implementation for Monte Carlo particle transport
+ ompMC - An OpenMP parallel implementation for Monte Carlo particle transport
  simulations
  
  Copyright (C) 2018 Edgardo Doerner (edoerner@fis.puc.cl)
@@ -23,6 +23,9 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+
+/* Flag set by '--verbose' argument */
+int verbose_flag;
 
 /******************************************************************************/
 /* A simple C/C++ class to parse input files and return requested
@@ -144,6 +147,7 @@ int input_idx = 0;                              // number of key,value pair
 * Before using the RNG, it is needed to initialize the RNG by a call to 
 * initRandom(). 
 *******************************************************************************/
+struct Random rng;
 
 /* Initialization function for the RANMAR random number generator (RNG) 
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
@@ -1408,6 +1412,7 @@ void rayleigh(int imed, double eig, double gle, int lgle) {
 }
 
 /* Pair production definitions */
+struct Pair pair_data;
 
 double fcoulc(double zi) {
     /* Calculates correction to Coulomb factor used in init_pair_data */

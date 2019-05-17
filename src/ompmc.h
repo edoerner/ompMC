@@ -1,5 +1,7 @@
+#ifndef OMPMC_H
+#define OMPMC_H
 /******************************************************************************
- ompMC - An hybrid parallel implementation for Monte Carlo particle transport
+ ompMC - An OpenMP parallel implementation for Monte Carlo particle transport
  simulations
  
  Copyright (C) 2018 Edgardo Doerner (edoerner@fis.puc.cl)
@@ -20,7 +22,7 @@
 *****************************************************************************/
 
 #ifndef M_PI
-    const double M_PI = 3.14159265358979323846;
+    #define M_PI 3.14159265358979323846
 #endif
 
 /* Flag set by '--verbose' argument */
@@ -30,9 +32,9 @@ extern int verbose_flag;
 /* A simple C/C++ class to parse input files and return requested key value 
 https://github.com/bmaynard/iniReader */
 
-const int BUFFER_SIZE = 256;
-const int INPUT_PAIRS = 80;
-const char* INPUT_EXT = ".inp";  // extension of input files
+#define BUFFER_SIZE 256
+#define INPUT_PAIRS 80
+#define INPUT_EXT ".inp"  // extension of input files
 
 /* Parse a configuration file */
 extern void parseInputFile(char *file_name);
@@ -70,8 +72,8 @@ extern int input_idx;                       // number of key,value pair
 * initRandom(). 
 *******************************************************************************/
 
-const int NRANDOM = 128;    // number of random numbers generated in each call 
-                            // to setRandom().
+#define NRANDOM 128     // number of random numbers generated in each call 
+                        // to setRandom().
 
 struct Random {
     int crndm;
@@ -118,10 +120,10 @@ extern double hownear(void);
 *******************************************************************************/
 
 /* Physical constants */
-const double RM = 0.5109989461; // MeV * c^(-2)
+#define RM 0.5109989461     // MeV * c^(-2)
 
 /* Common functions and definitions */
-const int MXSTACK = 100;    // maximum number of particles in stack
+#define MXSTACK 100 // maximum number of particles in stack
 
 struct Stack {
     int np;         // stack pointer
@@ -165,8 +167,8 @@ extern double pwlfEval(int idx, double lvar, double *coef1, double *coef0);
 * Photon physical processes definitions
 *******************************************************************************/
 
-const int MXGE = 2000;          // gamma mapped energy intervals
-const double SGMFP = 1.0E-05;    // smalles gamma mean free path
+#define MXGE 2000       // gamma mapped energy intervals
+#define SGMFP 1.0E-05   // smallest gamma mean free path
 
 struct Photon {
     double *ge0, *ge1;
@@ -193,10 +195,10 @@ extern void cleanPhoton(void);
 extern void listPhoton(void);
 
 /* Rayleigh scattering definitions */
-const int MXRAYFF = 100;        // Rayleigh atomic form factor
-const int RAYCDFSIZE = 100;     // CDF from Rayleigh form factors squared
-const double HC_INVERSE = 80.65506856998;
-const double TWICE_HC2 = 0.000307444456;
+#define MXRAYFF 100         // Rayleigh atomic form factor
+#define RAYCDFSIZE 100      // CDF from Rayleigh form factors squared
+#define HC_INVERSE 80.65506856998
+#define TWICE_HC2 0.000307444456
 
 struct Rayleigh {
     double *xgrid;
@@ -216,7 +218,7 @@ extern void listRayleigh(void);
 extern void rayleigh(int imed, double eig, double gle, int lgle);
 
 /* Pair production definitions */
-const double FSC = 0.00729735255664;    // fine structure constant
+#define FSC 0.00729735255664    // fine structure constant
 
 struct Pair {
     double *dl1;
@@ -255,10 +257,10 @@ extern void photon(void);
 /*******************************************************************************
 * Electron physical processes definitions
 *******************************************************************************/
-const double XIMAX = 0.5;
-const double ESTEPE = 0.25;
-const double EPSEMFP = 1.0E-5;  // smallest electron mean free path
-const int SKIN_DEPTH_FOR_BCA = 3;
+#define XIMAX 0.5
+#define ESTEPE 0.25
+#define EPSEMFP 1.0E-5      // smallest electron mean free path
+#define SKIN_DEPTH_FOR_BCA 3
 
 struct Electron {
     double *esig0;
@@ -321,10 +323,10 @@ extern void cleanElectron(void);
 extern void listElectron(void);
 
 /* Spin data */
-const int MXE_SPIN = 15;
-const int MXE_SPIN1 = 2*MXE_SPIN+1;
-const int MXQ_SPIN = 15;
-const int MXU_SPIN = 31;
+#define MXE_SPIN 15
+#define MXE_SPIN1 2*MXE_SPIN+1
+#define MXQ_SPIN 15
+#define MXU_SPIN 31
 
 struct Spin {
     double b2spin_min;
@@ -356,13 +358,13 @@ extern void sscat(int imed, int qel, double chia2, double elke, double beta2,
 	double *cost, double *sint);
 
 /* Screened Rutherford MS data */
-const int MXL_MS = 63;
-const int MXQ_MS = 7;
-const int MXU_MS = 31;
-const double LAMBMIN_MS = 1.0;
-const double LAMBMAX_MS = 1.0E5;
-const double QMIN_MS = 1.0E-3;
-const double QMAX_MS = 0.5;
+#define MXL_MS 63
+#define MXQ_MS 7
+#define MXU_MS 31
+#define LAMBMIN_MS 1.0
+#define LAMBMAX_MS 1.0E5
+#define QMIN_MS 1.0E-3
+#define QMAX_MS 0.5
 
 struct Mscat {
 
@@ -422,9 +424,9 @@ extern void electron(void);
 extern void shower(void);
 
 /* Media definitions */
-const int MXMED = 9;        // maximum number of media supported by the platform
-const int MXELEMENT = 50;   // maximum number of elements in a single medium
-const int MXEKE = 500;      // electron mapped energy intervals
+#define MXMED 9         // maximum number of media supported by the platform
+#define MXELEMENT 50    // maximum number of elements in a single medium
+#define MXEKE 500       // electron mapped energy intervals
 
 struct Media {
     int nmed;                   // number of media in the problem
@@ -473,8 +475,8 @@ extern struct Pegs pegs_data;
 extern void initMediaData(void);
 extern int readPegsFile(int *media_found);
 
-/* Region-by-region data definition */
-const int VACUUM = -1;
+/* Region-by-region definition */
+#define VACUUM -1
 
 struct Region {
     int *med;
@@ -487,6 +489,6 @@ extern struct Region region;
 extern void initRegions(void);  // this function must be defined in user code
 extern void cleanRegions(void);
 
-
 /******************************************************************************/
 
+#endif  // OMPMC_H
