@@ -27,13 +27,10 @@
 #include "ompmc.h"
 
 #include <ctype.h>
-#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-
 
 /******************************************************************************/
 /* Parsing program options with getopt long
