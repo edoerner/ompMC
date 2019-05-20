@@ -178,6 +178,8 @@ struct Random rng;
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
 used in ompMC. */
 void initRandom() {
+
+    int ixx, jxx;
     
     /* Get initial seeds from input */
     char buffer[BUFFER_SIZE];
@@ -185,16 +187,26 @@ void initRandom() {
         printf("Can not find 'rng seeds' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    sscanf(buffer, "%d %d", &rng.ixx, &rng.jxx);
+    sscanf(buffer, "%d %d", &ixx, &jxx);
+
+    /* Modify jxx seed depending on OpenMP thread id */
+    #ifdef _OPENMP
+        jxx = jxx + omp_get_thread_num();
+    #endif
     
-    if (rng.ixx <= 0 || rng.ixx > 31328) {
+    if (ixx <= 0 || ixx > 31328) {
         printf("Warning!, setting Marsaglia default for ixx\n");
-        rng.ixx = 1802; /* sets Marsaglia default */
+        ixx = 1802; /* sets Marsaglia default */
     }
-    if (rng.jxx <= 0 || rng.jxx > 31328) {
+    if (jxx <= 0 || jxx > 31328) {
         printf("Warning!, setting Marsaglia default for jxx\n");
-        rng.jxx = 9373; /* sets Marsaglia default */
+        jxx = 9373; /* sets Marsaglia default */
     }
+
+    /* Save seeds to rng state struct and print information to console */
+    rng.ixx = ixx;
+    rng.jxx = jxx;
+
     printf("RNG seeds : ixx = %d, jxx = %d\n", rng.ixx, rng.jxx);
     
     int i = (rng.ixx/177 % 177) + 2;
