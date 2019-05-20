@@ -1081,8 +1081,8 @@ void initHistory() {
 int main (int argc, char **argv) {
     
     /* Execution time measurement */
-    clock_t tbegin, tend;
-    tbegin = clock();
+    double tbegin;
+    tbegin = omc_get_time();
     
     /* Parsing program options */
     
@@ -1229,21 +1229,21 @@ int main (int argc, char **argv) {
     printf("Histories per batch: %d\n", nperbatch);
     
     /* Execution time up to this point */
-    printf("Execution time up to this point : %8.5f seconds\n",
-           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
+    printf("Execution time up to this point : %8.2f seconds\n",
+           (omc_get_time() - tbegin));
     
     for (int ibatch=0; ibatch<nbatch; ibatch++) {
         if (ibatch == 0) {
             /* Print header for information during simulation */
             printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
                    "RNG state");
-            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
-                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+            printf("%-10d\t%-15.2f\t%-5d%-5d\n", ibatch,
+                   (omc_get_time() - tbegin), rng.ixx, rng.jxx);
         }
         else {
             /* Print state of current batch */
-            printf("%-10d\t%-15.5f\t%-5d%-5d\n", ibatch,
-                   (double)(clock() - tbegin)/CLOCKS_PER_SEC, rng.ixx, rng.jxx);
+            printf("%-10d\t%-15.2f\t%-5d%-5d\n", ibatch,
+                   (omc_get_time() - tbegin), rng.ixx, rng.jxx);
             
         }
         int ihist;
@@ -1262,8 +1262,8 @@ int main (int argc, char **argv) {
     
     /* Print some output and execution time up to this point */
     printf("Simulation finished\n");
-    printf("Execution time up to this point : %8.5f seconds\n",
-           (double)(clock() - tbegin)/CLOCKS_PER_SEC);
+    printf("Execution time up to this point : %8.2f seconds\n",
+           (omc_get_time() - tbegin)/CLOCKS_PER_SEC);
     
     /* Analysis and output of results */
     if (verbose_flag) {
@@ -1300,9 +1300,8 @@ int main (int argc, char **argv) {
     free(input_file);
     free(output_file);
     /* Get total execution time */
-    tend = clock();
     printf("Total execution time : %8.5f seconds\n",
-           (double)(tend - tbegin)/CLOCKS_PER_SEC);
+           (omc_get_time() - tbegin));
     
     exit (EXIT_SUCCESS);
 }

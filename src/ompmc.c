@@ -23,9 +23,34 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 /* Flag set by '--verbose' argument */
 int verbose_flag;
+
+/* OpenMP related functions */
+#ifdef _OPENMP
+    #include <omp.h>
+#endif
+
+/******************************************************************************/
+/* Timing utilities. If OpenMP is enabled it calculates the wall time through 
+ omp_get_wtime() function. Otherwise, it calculates CPU time through the clock() 
+ function, available in time.h library. */
+
+double omc_get_time() {
+
+    double time_s;    // time in seconds.
+
+#ifdef _OPENMP
+    time_s = omp_get_wtime();
+#else
+    time_s = (double)clock()/CLOCKS_PER_SEC;
+#endif
+
+    return time_s;
+}
+/******************************************************************************/
 
 /******************************************************************************/
 /* A simple C/C++ class to parse input files and return requested

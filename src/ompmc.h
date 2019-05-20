@@ -29,6 +29,14 @@
 extern int verbose_flag;
 
 /******************************************************************************/
+/* Timing utilities. If OpenMP is enabled it calculates the wall time through 
+ omp_get_wtime() function. Otherwise, it calculates CPU time through the clock() 
+ function, available in time.h library. */
+
+double omc_get_time();
+/******************************************************************************/
+
+/******************************************************************************/
 /* A simple C/C++ class to parse input files and return requested key value 
 https://github.com/bmaynard/iniReader */
 
