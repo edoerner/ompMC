@@ -1263,7 +1263,7 @@ int main (int argc, char **argv) {
     /* Print some output and execution time up to this point */
     printf("Simulation finished\n");
     printf("Execution time up to this point : %8.2f seconds\n",
-           (omc_get_time() - tbegin)/CLOCKS_PER_SEC);
+           (omc_get_time() - tbegin));
     
     /* Analysis and output of results */
     if (verbose_flag) {
