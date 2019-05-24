@@ -1,6 +1,6 @@
 # start source definition      
 mono energy = 20.0
-spectrum file = ./spectra/mohan6.spectrum
+spectrum file = ./../../spectra/mohan6.spectrum
 charge = 0
 collimator bounds = -2.5 2.5 -2.5 2.5
 ssd = 90.0
@@ -14,17 +14,17 @@ rng seeds = 97 33
                               
 # start geometry
 method of input = phantom
-phantom file = ./phantoms/WATER.egsphant
+phantom file = ./../../phantoms/WATER.egsphant
 # stop geometry         
                               
 # start MC transport
 global ecut = 0.700
 global pcut = 0.010    
-pegs file = ./pegs4/700icru.pegs4dat
-pgs4form file = ./pegs4/pgs4form.dat     
+pegs file = ./../../pegs4/700icru.pegs4dat
+pgs4form file = ./../../pegs4/pgs4form.dat     
 # stop MC transport
 
 # start ompMC environment
-data folder = ./data/
-output folder = ./output/
+data folder = ./../../data/
+output folder = ./../../output/
 # start ompMC environment
