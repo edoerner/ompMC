@@ -75,12 +75,17 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
         mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:inputNot3D",
                 "Input argument 1 must be a three-dimensional cube\n");
     }
-    if(!mxIsStruct(mcGeo))
+    if (!mxIsInt32(cubeMatIx)) {
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:inputNotInt32","The density cube must be a 32 bit integer array!");
+    }
+    if(!mxIsStruct(mcGeo)) {
         mexErrMsgIdAndTxt( "MATLAB:phonebook:inputNotStruct",
                 "Input 3 must be a mcGeo Structure.");
-    if(!mxIsStruct(mcSrc))
+    }
+    if(!mxIsStruct(mcSrc)) {
         mexErrMsgIdAndTxt( "MATLAB:phonebook:inputNotStruct",
                 "Input 4 must be a mcSrc Structure.");
+    }
 
     return;
 }
@@ -106,7 +111,7 @@ struct Geom {
 };
 struct Geom geometry;
 
-void initPhantom(mxArray *mcGeo) {
+void initPhantom() {
     
     /* Get phantom information from matRad */
     unsigned int nfields;
@@ -117,95 +122,50 @@ void initPhantom(mxArray *mcGeo) {
 
     ngeostructfields = mxGetNumberOfFields(mcGeo);
 
-    char phantom_file[128];
-    char buffer[BUFFER_SIZE];
+    /* Get number of media and media names. This info is saved in media struct */
+    tmp_fieldpointer = mxGetField(mcGeo,0,"material");
+    materialdim = mxGetDimensions(tmp_fieldpointer);
+    nmaterials = materialdim[0];    
+    media.nmed = nmaterials;
     
-    if (getInputValue(buffer, "phantom file") != 1) {
-        printf("Can not find 'phantom file' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    removeSpaces(phantom_file, buffer);
-    
-    /* Open .egsphant file */
-    FILE *fp;
-    
-    if ((fp = fopen(phantom_file, "r")) == NULL) {
-        printf("Unable to open file: %s\n", phantom_file);
-        exit(EXIT_FAILURE);
-    }
-    
-    printf("Path to phantom file : %s\n", phantom_file);
-    
-    /* Get number of media in the phantom */
-    fgets(buffer, BUFFER_SIZE, fp);
-    media.nmed = atoi(buffer);
-    
-    /* Get media names on phantom file */
-    for (int i=0; i<media.nmed; i++) {
-        fgets(buffer, BUFFER_SIZE, fp);
-        removeSpaces(media.med_names[i], buffer);
-    }
-    
-    /* Skip next line, it contains dummy input */
-    fgets(buffer, BUFFER_SIZE, fp);
-    
-    /* Read voxel numbers on each direction */
-    fgets(buffer, BUFFER_SIZE, fp);
-    sscanf(buffer, "%d %d %d", &geometry.isize,
-           &geometry.jsize, &geometry.ksize);
-    
-    /* Read voxel boundaries on each direction */
-    geometry.xbounds = malloc((geometry.isize + 1)*sizeof(double));
-    geometry.ybounds = malloc((geometry.jsize + 1)*sizeof(double));
-    geometry.zbounds = malloc((geometry.ksize + 1)*sizeof(double));
-    
-    for (int i=0; i<=geometry.isize; i++) {
-        fscanf(fp, "%lf", &geometry.xbounds[i]);
-    }
-    for (int i=0; i<=geometry.jsize; i++) {
-        fscanf(fp, "%lf", &geometry.ybounds[i]);
-     }
-    for (int i=0; i<=geometry.ksize; i++) {
-        fscanf(fp, "%lf", &geometry.zbounds[i]);
-    }
-    
-    /* Skip the rest of the last line read before */
-    fgets(buffer, BUFFER_SIZE, fp);
-    
-    /* Read media indices */
-    int irl = 0;    // region index
-    char idx;
-    geometry.med_indices =
-        malloc(geometry.isize*geometry.jsize*geometry.ksize*sizeof(int));
-    for (int k=0; k<geometry.ksize; k++) {
-        for (int j=0; j<geometry.jsize; j++) {
-            for (int i=0; i<geometry.isize; i++) {
-                irl = i + j*geometry.isize + k*geometry.jsize*geometry.isize;
-                idx = fgetc(fp);
-                /* Convert digit stored as char to int */
-                geometry.med_indices[irl] = idx - '0';
-            }
-            /* Jump to next line */
-            fgets(buffer, BUFFER_SIZE, fp);
+    mwIndex tmpSubs[2];
+    char *tmp;
+    for (int iMat = 0; iMat < nmaterials; iMat++) {
+        tmpSubs[0] = iMat;
+        tmpSubs[1] = 0;
+        mwSize linIx = mxCalcSingleSubscript(tmp_fieldpointer,2,tmpSubs);
+        mxArray* tmpCellPointer = mxGetCell(tmp_fieldpointer,linIx);
+        
+        tmp = mxArrayToString(tmpCellPointer);
+        if (tmp)
+        {
+            strcpy(media.med_names[iMat],tmp);
         }
-        /* Skip blank line */
-        fgets(buffer, BUFFER_SIZE, fp);
-    }
-    
-    /* Read media densities */
-    geometry.med_densities =
-        malloc(geometry.isize*geometry.jsize*geometry.ksize*sizeof(double));
-    for (int k=0; k<geometry.ksize; k++) {
-        for (int j=0; j<geometry.jsize; j++) {
-            for (int i=0; i<geometry.isize; i++) {
-                irl = i + j*geometry.isize + k*geometry.jsize*geometry.isize;
-                fscanf(fp, "%lf", &geometry.med_densities[irl]);
-            }
+        else
+        {
+            mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Material string could not be read!");
         }
-        /* Skip blank line */
-        fgets(buffer, BUFFER_SIZE, fp);
     }
+
+    /* Get boundaries, density and material index for each voxel */
+    const mwSize *cubeDim = mxGetDimensions(cubeRho);        
+    mwSize nCubeElements = cubeDim[0]*cubeDim[1]*cubeDim[2];
     
+    geometry.isize = cubeDim[0];
+    geometry.jsize = cubeDim[1];
+    geometry.ksize = cubeDim[2];
+    
+    tmp_fieldpointer = mxGetField(mcGeo,0,"xBounds");    
+    geometry.xbounds = mxGetPr(tmp_fieldpointer);
+    tmp_fieldpointer = mxGetField(mcGeo,0,"yBounds");    
+    geometry.ybounds = mxGetPr(tmp_fieldpointer);
+    tmp_fieldpointer = mxGetField(mcGeo,0,"zBounds");    
+    geometry.zbounds = mxGetPr(tmp_fieldpointer);
+    
+    geometry.med_densities = mxGetPr(cubeRho);
+    
+    geometry.med_indices = (int*)mxGetPr(cubeMatIx);
+
     /* Summary with geometry information */
     printf("Number of media in phantom : %d\n", media.nmed);
     printf("Media names: ");
@@ -223,19 +183,14 @@ void initPhantom(mxArray *mcGeo) {
     printf("\tZ (cm) : %lf, %lf\n",
            geometry.zbounds[0], geometry.zbounds[geometry.ksize]);
     
-    /* Close phantom file */
-    fclose(fp);
-    
     return;
 }
 
 void cleanPhantom() {
     
-    free(geometry.xbounds);
-    free(geometry.ybounds);
-    free(geometry.zbounds);
-    free(geometry.med_indices);
-    free(geometry.med_densities);
+    /* The memory inside geometry structure is shared with Matlab, therefore 
+    it is not freed here */
+    
     return;
 }
 
@@ -1159,7 +1114,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     parseInput(nrhs, prhs);
     
     /* Read geometry information from matRad and initialize geometry */
-    initPhantom(mcGeo);
+    initPhantom();
     
     /* With number of media and media names initialize the medium data */
     initMediaData();
