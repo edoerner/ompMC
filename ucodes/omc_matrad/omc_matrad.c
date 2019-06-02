@@ -51,14 +51,17 @@ redefinition of printf function */
 #include <string.h>
 
 /* Variables needed to parse inputs from matRad */
-mxArray *cubeRho;
-mxArray *cubeMatIx;
-mxArray *mcGeo;
-mxArray *mcSrc;
-mxArray *mcOpt;
+const mxArray *cubeRho;
+const mxArray *cubeMatIx;
+const mxArray *mcGeo;
+const mxArray *mcSrc;
+const mxArray *mcOpt;
 
 /* Function used to parse input from matRad */
 void parseInput(int nrhs, const mxArray *prhs[]) {
+
+    mxArray *tmp_fieldpointer;
+    char *tmp;
 
     cubeRho = prhs[0];
     cubeMatIx = prhs[1];
@@ -87,6 +90,150 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
                 "Input 4 must be a mcSrc Structure.");
     }
 
+    /* Parse Monte Carlo options and create input items structure */
+    tmp_fieldpointer = mxGetField(mcOpt,0,"verbose");
+    verbose_flag = mxGetLogicals(tmp_fieldpointer)[0];
+
+    mxArray* tmp2;
+    int status;
+    int nInput = 0;
+    
+    sprintf(input_items[nInput].key,"nhist");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"nHistories");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"nbatch");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"nBatches");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+
+    nInput++;
+    sprintf(input_items[nInput].key,"spectrum file");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"spectrumFile");
+    tmp = mxArrayToString(tmp_fieldpointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"mono energy");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"monoEnergy");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");  
+
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"charge");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"charge");    
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+
+    nInput++;
+    sprintf(input_items[nInput].key,"global ecut");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"global_ecut");    
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+
+    nInput++;
+    sprintf(input_items[nInput].key,"global pcut");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"global_pcut");    
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"rng seeds");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"randomSeeds");    
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"pegs file");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"pegsFile");    
+    tmp = mxArrayToString(tmp_fieldpointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"pgs4form file");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"pgs4formFile");    
+    tmp = mxArrayToString(tmp_fieldpointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"data folder");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"dataFolder");    
+    tmp = mxArrayToString(tmp_fieldpointer);
+    strcpy(input_items[nInput].value,tmp);
+    
+    nInput++;
+    sprintf(input_items[nInput].key,"output folder");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"outputFolder");    
+    tmp = mxArrayToString(tmp_fieldpointer);
+    strcpy(input_items[nInput].value,tmp);
+
+    nInput++;
+    sprintf(input_items[nInput].key,"relative dose threshold");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"relDoseThreshold");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
+    
+    input_idx = nInput;
+    
+    mexPrintf("Input Options:\n");
+    for (int iInput = 0; iInput < nInput; iInput++)
+        mexPrintf("%s: %s\n",input_items[iInput].key,input_items[iInput].value);
+    
+    if (verbose_flag)
+        mexPrintf("OmpMC output Option: Verbose flag is set!");
+            
     return;
 }
 
@@ -350,6 +497,7 @@ const int MXEBIN = 200;     // number of energy bins of spectrum
 const int INVDIM = 1000;    // number of bins in inverse CDF
 
 struct Source {
+    int nmed;                   // number of media in phantom file
     int spectrum;               // 0 : monoenergetic, 1 : spectrum
     int charge;                 // 0 : photons, -1 : electron, +1 : positron
     
@@ -361,17 +509,26 @@ struct Source {
     double *cdfinv1;            // energy value of bin
     double *cdfinv2;            // prob. that particle has energy xi
     
-    /* Source shape information */
-    double ssd;                 // distance of point source to phantom surface
-    double xinl, xinu;          // lower and upper x-bounds of the field on
-                                // phantom surface
-    double yinl, yinu;          // lower and upper y-bounds of the field on
-                                // phantom surface
-    double xsize, ysize;        // x- and y-width of collimated field
-    int ixinl, ixinu;        // lower and upper x-bounds indices of the
-                                // field on phantom surface
-    int iyinl, iyinu;        // lower and upper y-bounds indices of the
-                                // field on phantom surface
+    /* Beamlets shape information */
+    int nbeamlets;               // number of beamlets per beam
+    int *ibeam;                  // index of beam per beamlet
+    
+    double *xsource;           // coordinates of the source of each beam
+    double *ysource;          
+    double *zsource;          
+        
+    double *xcorner;           // coordinates of the bixel corner
+    double *ycorner;           
+    double *zcorner;  
+    
+    double *xside1;           // coordinates of the first side of bixel
+    double *yside1;           
+    double *zside1;
+    
+    double *xside2;           // coordinates of the second side of bixel
+    double *yside2;           
+    double *zside2;
+        
 };
 struct Source source;
 
@@ -528,121 +685,66 @@ void initSource() {
         
     }
     
-    /* Initialize geometrical data of the source */
+    /* Parse data of the beamlets */
+    unsigned int nfields;
+    mxArray *tmp_fieldpointer;
+
+    tmp_fieldpointer = mxGetField(mcSrc,0,"nBixels");
+    nfields = mxGetScalar(tmp_fieldpointer);
+    source.nbeamlets = nfields;
     
-    /* Read collimator rectangle */
-    if (getInputValue(buffer, "collimator bounds") != 1) {
-        printf("Can not find 'collimator bounds' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    sscanf(buffer, "%lf %lf %lf %lf", &source.xinl,
-           &source.xinu, &source.yinl, &source.yinu);
+    mexPrintf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
     
-    /* Calculate x-direction input zones */
-    if (source.xinl < geometry.xbounds[0]) {
-        source.xinl = geometry.xbounds[0];
-    }
-    if (source.xinu <= source.xinl) {
-        source.xinu = source.xinl;  /* default a pencil beam */
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"iBeam");
+    const double* iBeamPerBeamlet = mxGetPr(tmp_fieldpointer);
     
-    /* Check radiation field is not too big against the phantom */
-    if (source.xinu > geometry.xbounds[geometry.isize]) {
-        source.xinu = geometry.xbounds[geometry.isize];
-    }
-    if (source.xinl > geometry.xbounds[geometry.isize]) {
-        source.xinl = geometry.xbounds[geometry.isize];
-    }
-    
-    /* Now search for initial region x index range */
-    printf("Index ranges for radiation field:\n");
-    source.ixinl = 0;
-    while ((geometry.xbounds[source.ixinl] <= source.xinl) &&
-           (geometry.xbounds[source.ixinl + 1] < source.xinl)) {
-        source.ixinl++;
+    source.ibeam = (int*) malloc(source.nbeamlets*sizeof(int));
+    for(int i=0; i<source.nbeamlets; i++) {
+        source.ibeam[i] = (int) iBeamPerBeamlet[i] - 1; // C indexing style
     }
         
-    source.ixinu = source.ixinl - 1;
-    while ((geometry.xbounds[source.ixinu] <= source.xinu) &&
-           (geometry.xbounds[source.ixinu + 1] < source.xinu)) {
-        source.ixinu++;
-    }
-    printf("i index ranges over i = %d to %d\n", source.ixinl, source.ixinu);
+    tmp_fieldpointer = mxGetField(mcSrc,0,"xSource");
+    source.xsource = mxGetPr(tmp_fieldpointer);
     
-    /* Calculate y-direction input zones */
-    if (source.yinl < geometry.ybounds[0]) {
-        source.yinl = geometry.ybounds[0];
-    }
-    if (source.yinu <= source.yinl) {
-        source.yinu = source.yinl;  /* default a pencil beam */
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"ySource");
+    source.ysource = mxGetPr(tmp_fieldpointer);
     
-    /* Check radiation field is not too big against the phantom */
-    if (source.yinu > geometry.ybounds[geometry.jsize]) {
-        source.yinu = geometry.ybounds[geometry.jsize];
-    }
-    if (source.yinl > geometry.ybounds[geometry.jsize]) {
-        source.yinl = geometry.ybounds[geometry.jsize];
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"zSource");
+    source.zsource = mxGetPr(tmp_fieldpointer);
+            
+    tmp_fieldpointer = mxGetField(mcSrc,0,"xCorner");
+    source.xcorner = mxGetPr(tmp_fieldpointer);
     
-    /* Now search for initial region y index range */
-    source.iyinl = 0;
-    while ((geometry.ybounds[source.iyinl] <= source.yinl) &&
-           (geometry.ybounds[source.iyinl + 1] < source.yinl)) {
-        source.iyinl++;
-    }
-    source.iyinu = source.iyinl - 1;
-    while ((geometry.ybounds[source.iyinu] <= source.yinu) &&
-           (geometry.ybounds[source.iyinu + 1] < source.yinu)) {
-        source.iyinu++;
-    }
-    printf("j index ranges over i = %d to %d\n", source.iyinl, source.iyinu);
-
-    /* Calculate collimator sizes */
-    source.xsize = source.xinu - source.xinl;
-    source.ysize = source.yinu - source.yinl;
+    tmp_fieldpointer = mxGetField(mcSrc,0,"yCorner");
+    source.ycorner = mxGetPr(tmp_fieldpointer);
     
-    /* Read source charge */
-    if (getInputValue(buffer, "charge") != 1) {
-        printf("Can not find 'charge' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"zCorner");
+    source.zcorner = mxGetPr(tmp_fieldpointer);
     
-    source.charge = atoi(buffer);
-    if (source.charge < -1 || source.charge > 1) {
-        printf("Particle kind not recognized.\n");
-        exit(EXIT_FAILURE);
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"xSide1");
+    source.xside1 = mxGetPr(tmp_fieldpointer);
     
-    /* Read source SSD */
-    if (getInputValue(buffer, "ssd") != 1) {
-        printf("Can not find 'ssd' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"ySide1");
+    source.yside1 = mxGetPr(tmp_fieldpointer);
     
-    source.ssd = atof(buffer);
-    if (source.ssd < 0) {
-        printf("SSD must be greater than zero.\n");
-        exit(EXIT_FAILURE);
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"zSide1");
+    source.zside1 = mxGetPr(tmp_fieldpointer);
     
-    /* Print some information for debugging purposes */
-    if (verbose_flag) {
-        printf("Source information :\n");
-        printf("\t Charge = %d\n", source.charge);
-        printf("\t SSD (cm) = %f\n", source.ssd);
-        printf("Collimator :\n");
-        printf("\t x (cm) : min = %f, max = %f\n", source.xinl, source.xinu);
-        printf("\t y (cm) : min = %f, max = %f\n", source.yinl, source.yinu);
-        printf("Sizes :\n");
-        printf("\t x (cm) = %f, y (cm) = %f\n", source.xsize, source.ysize);
-    }
+    tmp_fieldpointer = mxGetField(mcSrc,0,"xSide2");
+    source.xside2 = mxGetPr(tmp_fieldpointer);
+    
+    tmp_fieldpointer = mxGetField(mcSrc,0,"ySide2");
+    source.yside2 = mxGetPr(tmp_fieldpointer);
+    
+    tmp_fieldpointer = mxGetField(mcSrc,0,"zSide2");
+    source.zside2 = mxGetPr(tmp_fieldpointer);    
     
     return;
 }
 
 void cleanSource() {
     
+    /* Memory related to the beamlets is freed within Matlab */
     free(source.cdfinv1);
     free(source.cdfinv2);
     
@@ -983,10 +1085,13 @@ void initRegions() {
     return;
 }
 
-void initHistory() {
-
+void initHistory(int ibeamlet) {
+    
     double rnno1;
     double rnno2;
+    
+    int ijmax = geometry.isize*geometry.jsize;
+    int imax = geometry.isize;
     
     /* Initialize first particle of the stack from source data */
     stack.np = 0;
@@ -1022,70 +1127,111 @@ void initHistory() {
     /* Accumulate sampled kinetic energy for fraction of deposited energy
      calculations */
     score.ensrc += ein;
-           
-    /* Set particle position. First obtain a random position in the rectangle
-     defined by the collimator */
-    double rxyz = 0.0;
-    if (source.xsize == 0.0 || source.ysize == 0.0) {
-        stack.x[stack.np] = source.xinl;
-        stack.y[stack.np] = source.yinl;
-        
-        rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
-                    pow(stack.y[stack.np], 2.0));
-        
-        /* Get direction along z-axis */
-        stack.w[stack.np] = source.ssd/rxyz;
-        
-    } else {
-        double fw;
-        double rnno3;
-        do { /* rejection sampling of the initial position */
-            rnno3 = setRandom();
-            stack.x[stack.np] = rnno3*source.xsize + source.xinl;
-            rnno3 = setRandom();
-            stack.y[stack.np] = rnno3*source.ysize + source.yinl;
-            rnno3 = setRandom();
-            rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
-                        pow(stack.y[stack.np], 2.0));
-            
-            /* Get direction along z-axis */
-            stack.w[stack.np] = source.ssd/rxyz;
-
-            fw = pow(stack.w[stack.np], 3.0);
-        } while(rnno3 >= fw);
-    }
-    /* Set position of the particle in front of the geometry */
-    stack.z[stack.np] = geometry.zbounds[0];
     
-    /* At this point the position has been found, calculate particle
-     direction */
-    stack.u[stack.np] = stack.x[stack.np]/rxyz;
-    stack.v[stack.np] = stack.y[stack.np]/rxyz;
+    /* Set particle position. First obtain a random position in the rectangle
+     defined by the bixel at isocenter*/    
+    double xiso = 0.0; 
+    double yiso = 0.0;
+    double ziso = 0.0;
+    
+    rnno1 = setRandom();
+    rnno2 = setRandom();
+    
+    xiso = rnno1*source.xside1[ibeamlet] + rnno2*source.xside2[ibeamlet] + 
+            source.xcorner[ibeamlet];
+    yiso = rnno1*source.yside1[ibeamlet] + rnno2*source.yside2[ibeamlet] + 
+            source.ycorner[ibeamlet];
+    ziso = rnno1*source.zside1[ibeamlet] + rnno2*source.zside2[ibeamlet] + 
+            source.zcorner[ibeamlet];
+    
+    /* Norm of the resulting vector from the source of current beam to the 
+     position of the particle on bixel */
+    int ibeam = source.ibeam[ibeamlet];
+    double vnorm = sqrt(pow(xiso - source.xsource[ibeam], 2.0) + 
+            pow(yiso - source.ysource[ibeam], 2.0) + 
+            pow(ziso - source.zsource[ibeam], 2.0));
+        
+    /* Direction of the particle from position on bixel to beam source*/
+    double u = -(xiso - source.xsource[ibeam])/vnorm;
+    double v = -(yiso - source.ysource[ibeam])/vnorm;
+    double w = -(ziso - source.zsource[ibeam])/vnorm;
+    
+    /* Calculate the minimum distance from particle position on bixel to 
+     phantom boundaries */
+    double ustep = 1.0E5;
+    double dist;
+    
+    if(u > 0.0) {
+        dist = (geometry.xbounds[geometry.isize]-xiso)/u;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(u < 0.0) {
+        dist = -(xiso-geometry.xbounds[0])/u;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    if(v > 0.0) {
+        dist = (geometry.ybounds[geometry.jsize]-yiso)/v;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(v < 0.0) {
+        dist = -(yiso-geometry.ybounds[0])/v;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    if(w > 0.0) {
+        dist = (geometry.zbounds[geometry.ksize]-ziso)/w;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    if(w < 0.0) {
+        dist = -(ziso-geometry.zbounds[0])/w;
+        if(dist < ustep) {
+            ustep = dist;
+        }        
+    }
+    
+    /* Transport particle from bixel to surface. Adjust particle direction 
+     to be incident to phantom surface */
+    stack.x[stack.np] = xiso + ustep*u;
+    stack.y[stack.np] = yiso + ustep*v;
+    stack.z[stack.np] = ziso + ustep*w;
+    
+    stack.u[stack.np] = -u;
+    stack.v[stack.np] = -v;
+    stack.w[stack.np] = -w;
     
     /* Determine region index of source particle */
-    int ix, iy;
-    if (source.xsize == 0.0) {
-        ix = source.ixinl;
-    } else {
-        ix = source.ixinl - 1;
-        while ((geometry.xbounds[ix+1] < stack.x[stack.np]) && ix < geometry.isize-1) {
-            ix++;
-        }
+    int ix = 0;
+    while ((geometry.xbounds[ix+1] < stack.x[stack.np]) && ix < geometry.isize-1) {
+        ix++;
     }
-    if (source.ysize == 0.0) {
-        iy = source.iyinl;
-    } else {
-        iy = source.iyinl - 1;
-        while ((geometry.ybounds[iy+1] < stack.y[stack.np]) && iy < geometry.jsize-1) {
-            iy++;
-        }
-    }
-    stack.ir[stack.np] = 1 + ix + iy*geometry.isize;
     
+    int iy = 0;
+    while ((geometry.ybounds[iy+1] < stack.y[stack.np]) && iy < geometry.jsize-1) {
+        iy++;
+    }
+    
+    int iz = 0;
+    while ((geometry.zbounds[iz+1] < stack.z[stack.np]) && iz < geometry.ksize-1) {
+        iz++;
+    }
+    
+    stack.ir[stack.np] = 1 + ix + iy*imax + iz*ijmax;
+          
     /* Set statistical weight and distance to closest boundary*/
     stack.wt[stack.np] = 1.0;
     stack.dnear[stack.np] = 0.0;
-        
+    
     return;
 }
 
@@ -1157,7 +1303,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
         printf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-   int nhist = atoi(buffer);
+    int nhist = atoi(buffer);
     
     if (getInputValue(buffer, "nbatch") != 1) {
         printf("Can not find 'nbatch' key on input file.\n");
@@ -1177,60 +1323,181 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     printf("Total number of particle histories: %d\n", nhist);
     printf("Number of statistical batches: %d\n", nbatch);
     printf("Histories per batch: %d\n", nperbatch);
+
+    if (getInputValue(buffer, "relative dose threshold") != 1) {
+        printf("Can not find 'relative dose threshold' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }    
+    double relDoseThreshold = atof(buffer);
+
+    mexPrintf("Using a relative dose cut-off of %f\n",relDoseThreshold);
     
+    /* Use Matlab waitbar to show execution progress */
+    mxArray* waitbarHandle = 0;                             // the waitbar handle does not exist yet
+	mxArray* waitbarProgress = mxCreateDoubleScalar(0.0);   // allocate a double scalar for the progress
+	mxArray* waitbarMessage = mxCreateString("calculate dose influence matrix for photons (ompMC) ...");    // allocate a string for the message
+	
+	mxArray* waitbarInputs[3];  // array of waitbar inputs
+    mxArray* waitbarOutput[1];  // pointer to waitbar output
+
+	waitbarInputs[0] = waitbarProgress; 
+	waitbarInputs[1] = waitbarMessage;
+	
+	/* Create the waitbar with h = waitbar(progress,message); */
+    int status = mexCallMATLAB(1, waitbarOutput, 2, waitbarInputs, "waitbar");
+
+    waitbarHandle = waitbarOutput[0];
+
+    /* Create output matrix */
+    mwSize nCubeElements = geometry.isize*geometry.jsize*geometry.ksize;
+    double percentage_steps = 0.01;             // steps in which the sparse matrix is allocated
+    double percent_sparse = percentage_steps;   // initial percentage to allocate memory for
+
+    mwSize nzmax = (mwSize) ceil((double)nCubeElements*(double)source.nbeamlets*percent_sparse);
+    plhs[0] = mxCreateSparse(nCubeElements,source.nbeamlets,nzmax,mxREAL);
+
+    double *sr  = mxGetPr(plhs[0]);
+    mwIndex *irs = mxGetIr(plhs[0]);
+    mwIndex *jcs = mxGetJc(plhs[0]);
+    mwIndex linIx = 0;
+    jcs[0] = 0;
+    
+    double progress = 0.0;
+
     /* Execution time up to this point */
     printf("Execution time up to this point : %8.2f seconds\n",
            (omc_get_time() - tbegin));
     
-    for (int ibatch=0; ibatch<nbatch; ibatch++) {
-        if (ibatch == 0) {
-            /* Print header for information during simulation */
-            printf("%-10s\t%-15s\t%-10s\n", "Batch #", "Elapsed time",
-                   "RNG state");
-            printf("%-10d\t%-15.2f\t%-5d%-5d\n", ibatch,
-                   (omc_get_time() - tbegin), rng.ixx, rng.jxx);
-        }
-        else {
-            /* Print state of current batch */
-            printf("%-10d\t%-15.2f\t%-5d%-5d\n", ibatch,
-                   (omc_get_time() - tbegin), rng.ixx, rng.jxx);
+    for(int ibeamlet=0; ibeamlet<source.nbeamlets; ibeamlet++) {
+        for (int ibatch=0; ibatch<nbatch; ibatch++) {            
+            int ihist;
+
+            #pragma omp parallel for schedule(dynamic)
+            for (ihist=0; ihist<nperbatch; ihist++) {
+                /* Initialize particle history */
+                initHistory(ibeamlet);
+                
+                /* Start electromagnetic shower simulation */
+                shower();
+            }
             
+            /* Accumulate results of current batch for statistical analysis */
+            accumEndep();
+
+            progress = ((double)ibeamlet + (double)(ibatch+1)/nbatch)/source.nbeamlets;
+            (*mxGetPr(waitbarProgress)) = progress;
+
+            if (waitbarOutput && waitbarHandle) {              
+              waitbarInputs[0] = waitbarProgress;
+              waitbarInputs[1] = waitbarHandle;
+              waitbarInputs[2] = waitbarMessage;
+              status = mexCallMATLAB(0, waitbarOutput, 2, waitbarInputs, "waitbar");
+            }
         }
-        int ihist;
-        #pragma omp parallel for schedule(dynamic)
-        for (ihist=0; ihist<nperbatch; ihist++) {
-            /* Initialize particle history */
-            initHistory();
+
+        /* Output of results for current beamlet */
+        int iout = 1;   /* i.e. deposit mean dose per particle fluence */
+        accumulateResults(iout, nhist, nbatch);
+
+        /* Get maximum value to apply threshold */
+        double doseMax = 0.0;
+        for (int irl=1; irl < gridsize+1; irl++) {
+            if (score.accum_endep[irl] > doseMax) {
+                doseMax = score.accum_endep[irl];
+            }
+        }
+        double thresh = doseMax*relDoseThreshold;
+        /* Count values above threshold */
+        mwSize nnz = 0; //Number of nonzeros in the dose cube
+
+        for (int irl=1; irl < gridsize+1; irl++) {        
+            if (score.accum_endep[irl] > thresh) {
+                nnz++;
+            }                
+        }
+
+        /* Check if we need to reallocate for sparse matrix */
+        if ((linIx + nnz) > nzmax) {
+            int oldnzmax = nzmax;
+            percent_sparse += percentage_steps;
+            nzmax = (mwSize) ceil((double)nCubeElements*(double)source.nbeamlets*percent_sparse);
             
-            /* Start electromagnetic shower simulation */
-            shower();
+            /* Make sure nzmax increases at least by 1. */
+            if (oldnzmax == nzmax) {
+                nzmax++;
+            }                
+
+            /* Check that the new nmax is large enough and if not, also adjust 
+            the percentage_steps since we seem to have set it too small for this 
+            particular use case */
+            if (nzmax < (linIx + nnz)) {
+                nzmax = linIx + nnz;
+                percent_sparse = (double)nzmax/nCubeElements;
+                percentage_steps = percent_sparse;
+            }
+
+            if (verbose_flag) {
+                mexPrintf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n", oldnzmax, nzmax);
+            }                
+            
+            /* Set new nzmax and reallocate more memory */
+            mxSetNzmax(plhs[0], nzmax);
+            mxSetPr(plhs[0], (double *) mxRealloc(sr, nzmax*sizeof(double)));
+            mxSetIr(plhs[0], (mwIndex *)  mxRealloc(irs, nzmax*sizeof(mwIndex)));
+            
+            /* Use the new pointers */
+            sr  = mxGetPr(plhs[0]);
+            irs = mxGetIr(plhs[0]);
         }
         
-        /* Accumulate results of current batch for statistical analysis */
-        accumEndep();
+        for (int irl=1; irl < gridsize+1; irl++) {        
+            if (score.accum_endep[irl] > thresh) {            
+                sr[linIx] = score.accum_endep[irl];
+                irs[linIx] = irl-1;
+                linIx++;
+            }
+        }
+        
+        jcs[ibeamlet+1] = linIx;
+        
+        /* Reset accum_endep for following beamlet */
+        memset(score.accum_endep, 0.0, (gridsize + 1)*sizeof(double));                
+		progress = (double) (ibeamlet+1) / (double) source.nbeamlets;		
+        (*mxGetPr(waitbarProgress)) = progress;
+
+		/* Update the waitbar with waitbar(hWaitbar,progress); */
+        if (waitbarOutput && waitbarHandle) {
+            waitbarInputs[0] = waitbarProgress;
+            waitbarInputs[1] = waitbarHandle;		
+            waitbarInputs[2] = waitbarMessage;
+            status = mexCallMATLAB(0, waitbarOutput, 2, waitbarInputs, "waitbar");
+        }
     }
+
+    mxDestroyArray (waitbarProgress);
+	mxDestroyArray (waitbarMessage);
+    if (waitbarOutput && waitbarHandle) {
+        waitbarInputs[0] = waitbarHandle;		
+        status = mexCallMATLAB(0,waitbarOutput,1, waitbarInputs,"close") ;
+        mxDestroyArray(waitbarHandle);
+	}
+    
+    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n", linIx, 
+        (double)linIx/((double)nCubeElements*(double)source.nbeamlets));
+    
+    /* Truncate the matrix to the exact size by reallocation */
+    mxSetNzmax(plhs[0], linIx);
+    mxSetPr(plhs[0], mxRealloc(sr, linIx*sizeof(double)));
+    mxSetIr(plhs[0], mxRealloc(irs, linIx*sizeof(int)));
+    
+    sr  = mxGetPr(plhs[0]);
+    irs = mxGetIr(plhs[0]);    
     
     /* Print some output and execution time up to this point */
     printf("Simulation finished\n");
     printf("Execution time up to this point : %8.2f seconds\n",
-           (omc_get_time() - tbegin));
-    
-    /* Analysis and output of results */
-    if (verbose_flag) {
-        /* Sum energy deposition in the phantom */
-        double etot = 0.0;
-        for (int irl=1; irl<gridsize+1; irl++) {
-            etot += score.accum_endep[irl];
-        }
-        printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
-               etot/score.ensrc);
-        printf("Fraction of incident energy outside the phantom: %5.4f\n",
-               score.accum_endep[0]/score.ensrc);
-    }
-    
-    int iout = 1;   /* i.e. deposit mean dose per particle fluence */
-    outputResults(output_file, iout, nperbatch, nbatch);
-    
+           (omc_get_time() - tbegin));    
+       
     /* Cleaning */
     cleanPhantom();
     cleanPhoton();
@@ -1242,12 +1509,13 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     cleanRegions();
     cleanScore();
     cleanSource();
+
     #pragma omp parallel
     {
       cleanRandom();
       cleanStack();
     }
-    free(output_file);
+
     /* Get total execution time */
     printf("Total execution time : %8.5f seconds\n",
            (omc_get_time() - tbegin));

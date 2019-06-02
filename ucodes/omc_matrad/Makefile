@@ -15,21 +15,21 @@ UCODE = omc_matrad
 INCLUDES = -I../../src
 
 # Source files
-SOURCES = $(UCODE).c ../../src/ompmc.c
+SOURCES = $(UCODE).c
 
 # C compiler:
-CC = gcc
+CC = /usr/local/MATLAB/R2018b/bin/mex
 
 # Compiler flags:
 CFLAGS = -lm
 
 # The build target executable:
-TARGET = $(UCODE).out
+TARGET = $(UCODE).mexa64
 
 all: $(TARGET)
 
 $(TARGET): $(SOURCES)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $(TARGET) $(SOURCES)
+	$(CC) $(CFLAGS) $(INCLUDES) -output $(TARGET) $(SOURCES)
 
 clean:
 	rm $(TARGET)
