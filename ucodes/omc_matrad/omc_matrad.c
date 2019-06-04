@@ -34,13 +34,11 @@
 #ifdef _OPENMP
   #include <omp.h>
   #define printf(...) fprintf(stderr,__VA_ARGS__)
-#else
-  #define printf mexPrintf
 #endif
 
 #define exit(EXIT_FAILURE) mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalid","Abort.");
 
-/* The ompmc source file is included, instead of the header, because of the 
+/* The ompmc source file is included instead of the header, because of the 
 redefinition of printf function */
 #include "ompmc.c"
 
@@ -227,12 +225,12 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
     
     input_idx = nInput;
     
-    mexPrintf("Input Options:\n");
+    printf("Input Options:\n");
     for (int iInput = 0; iInput < nInput; iInput++)
-        mexPrintf("%s: %s\n",input_items[iInput].key,input_items[iInput].value);
+        printf("%s: %s\n",input_items[iInput].key,input_items[iInput].value);
     
     if (verbose_flag)
-        mexPrintf("OmpMC output Option: Verbose flag is set!");
+        printf("OmpMC output Option: Verbose flag is set!");
             
     return;
 }
@@ -693,7 +691,7 @@ void initSource() {
     nfields = mxGetScalar(tmp_fieldpointer);
     source.nbeamlets = nfields;
     
-    mexPrintf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
+    printf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
     
     tmp_fieldpointer = mxGetField(mcSrc,0,"iBeam");
     const double* iBeamPerBeamlet = mxGetPr(tmp_fieldpointer);
@@ -1330,7 +1328,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     }    
     double relDoseThreshold = atof(buffer);
 
-    mexPrintf("Using a relative dose cut-off of %f\n",relDoseThreshold);
+    printf("Using a relative dose cut-off of %f\n",relDoseThreshold);
     
     /* Use Matlab waitbar to show execution progress */
     mxArray* waitbarHandle = 0;                             // the waitbar handle does not exist yet
@@ -1437,7 +1435,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
             }
 
             if (verbose_flag) {
-                mexPrintf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n", oldnzmax, nzmax);
+                printf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n", oldnzmax, nzmax);
             }                
             
             /* Set new nzmax and reallocate more memory */
@@ -1482,7 +1480,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
         mxDestroyArray(waitbarHandle);
 	}
     
-    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n", linIx, 
+    printf("Sparse MC Dij has %d (%f percent) elements!\n", linIx, 
         (double)linIx/((double)nCubeElements*(double)source.nbeamlets));
     
     /* Truncate the matrix to the exact size by reallocation */
