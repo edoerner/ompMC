@@ -32,8 +32,10 @@
 
 /* Redefine printf() function due to conflicts with mex and OpenMP */
 #ifdef _OPENMP
-  #include <omp.h>
-  #define printf(...) fprintf(stderr,__VA_ARGS__)
+    #include <omp.h>
+
+    #undef printf
+    #define printf(...) fprintf(stderr,__VA_ARGS__)
 #endif
 
 #define exit(EXIT_FAILURE) mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalid","Abort.");
@@ -43,6 +45,7 @@ redefinition of printf function */
 #include "ompmc.c"
 
 #include <ctype.h>
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -96,7 +99,7 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
     int status;
     int nInput = 0;
     
-    sprintf(input_items[nInput].key,"nhist");
+    sprintf(input_items[nInput].key,"ncase");
     tmp_fieldpointer = mxGetField(mcOpt,0,"nHistories");
     status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
     if (status != 0)
@@ -225,20 +228,15 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
     
     input_idx = nInput;
     
-    printf("Input Options:\n");
+    mexPrintf("Input Options:\n");
     for (int iInput = 0; iInput < nInput; iInput++)
-        printf("%s: %s\n",input_items[iInput].key,input_items[iInput].value);
+        mexPrintf("%s: %s\n",input_items[iInput].key,input_items[iInput].value);
     
     if (verbose_flag)
-        printf("OmpMC output Option: Verbose flag is set!");
+        mexPrintf("ompMC output Option: Verbose flag is set!\n");
             
     return;
 }
-
-/******************************************************************************/
-/* Parsing program options with getopt long
- http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
-#include <getopt.h>
 
 /******************************************************************************/
 /* Geometry definitions */
@@ -312,20 +310,20 @@ void initPhantom() {
     geometry.med_indices = (int*)mxGetPr(cubeMatIx);
 
     /* Summary with geometry information */
-    printf("Number of media in phantom : %d\n", media.nmed);
-    printf("Media names: ");
+    mexPrintf("Number of media in phantom : %d\n", media.nmed);
+    mexPrintf("Media names: ");
     for (int i=0; i<media.nmed; i++) {
-        printf("%s, ", media.med_names[i]);
+        mexPrintf("%s, ", media.med_names[i]);
     }
-    printf("\n");
-    printf("Number of voxels on each direction (X,Y,Z) : (%d, %d, %d)\n",
+    mexPrintf("\n");
+    mexPrintf("Number of voxels on each direction (X,Y,Z) : (%d, %d, %d)\n",
            geometry.isize, geometry.jsize, geometry.ksize);
-    printf("Minimum and maximum boundaries on each direction : \n");
-    printf("\tX (cm) : %lf, %lf\n",
+    mexPrintf("Minimum and maximum boundaries on each direction : \n");
+    mexPrintf("\tX (cm) : %lf, %lf\n",
            geometry.xbounds[0], geometry.xbounds[geometry.isize]);
-    printf("\tY (cm) : %lf, %lf\n",
+    mexPrintf("\tY (cm) : %lf, %lf\n",
            geometry.ybounds[0], geometry.ybounds[geometry.jsize]);
-    printf("\tZ (cm) : %lf, %lf\n",
+    mexPrintf("\tZ (cm) : %lf, %lf\n",
            geometry.zbounds[0], geometry.zbounds[geometry.ksize]);
     
     return;
@@ -540,8 +538,8 @@ void initSource() {
     
     /* First check of spectrum file was given as an input */
     if (getInputValue(buffer, "spectrum file") != 1) {
-        printf("Can not find 'spectrum file' key on input file.\n");
-        printf("Switch to monoenergetic case.\n");
+        mexPrintf("Can not find 'spectrum file' key on input file.\n");
+        mexPrintf("Switch to monoenergetic case.\n");
         source.spectrum = 0;    /* monoenergetic source */
     }
     
@@ -552,15 +550,15 @@ void initSource() {
         FILE *fp;
         
         if ((fp = fopen(spectrum_file, "r")) == NULL) {
-            printf("Unable to open file: %s\n", spectrum_file);
+            mexPrintf("Unable to open file: %s\n", spectrum_file);
             exit(EXIT_FAILURE);
         }
         
-        printf("Path to spectrum file : %s\n", spectrum_file);
+        mexPrintf("Path to spectrum file : %s\n", spectrum_file);
         
         /* Read spectrum file title */
         fgets(buffer, BUFFER_SIZE, fp);
-        printf("Spectrum file title: %s", buffer);
+        mexPrintf("Spectrum file title: %s", buffer);
         
         /* Read number of bins and spectrum type */
         double enmin;   /* lower energy of first bin */
@@ -571,7 +569,7 @@ void initSource() {
         sscanf(buffer, "%d %lf %d", &nensrc, &enmin, &imode);
         
         if (nensrc > MXEBIN) {
-            printf("Number of energy bins = %d is greater than max allowed = "
+            mexPrintf("Number of energy bins = %d is greater than max allowed = "
                    "%d. Increase MXEBIN macro!\n", nensrc, MXEBIN);
             exit(EXIT_FAILURE);
         }
@@ -586,25 +584,25 @@ void initSource() {
             fgets(buffer, BUFFER_SIZE, fp);
             sscanf(buffer, "%lf %lf", &ensrcd[i], &srcpdf[i]);
         }
-        printf("Have read %d input energy bins from spectrum file.\n", nensrc);
+        mexPrintf("Have read %d input energy bins from spectrum file.\n", nensrc);
         
         if (imode == 0) {
-            printf("Counts/bin assumed.\n");
+            mexPrintf("Counts/bin assumed.\n");
         }
         else if (imode == 1) {
-            printf("Counts/MeV assumed.\n");
+            mexPrintf("Counts/MeV assumed.\n");
             srcpdf[0] *= (ensrcd[0] - enmin);
             for(int i=1; i<nensrc; i++) {
                 srcpdf[i] *= (ensrcd[i] - ensrcd[i - 1]);
             }
         }
         else {
-            printf("Invalid mode number in spectrum file.");
+            mexPrintf("Invalid mode number in spectrum file.");
             exit(EXIT_FAILURE);
         }
         
         double ein = ensrcd[nensrc - 1];
-        printf("Energy ranges from %f to %f MeV\n", enmin, ein);
+        mexPrintf("Energy ranges from %f to %f MeV\n", enmin, ein);
         
         /* Initialization routine to calculate the inverse of the
          cumulative probability distribution that is used during execution to
@@ -636,7 +634,7 @@ void initSource() {
         }
         
         if (binsok != 0.0) {
-            printf("Warning!, some of normalized bin probabilities are "
+            mexPrintf("Warning!, some of normalized bin probabilities are "
                    "so small that bins may be missed.\n");
         }
 
@@ -675,11 +673,11 @@ void initSource() {
     }
     else {  /* monoenergetic source */
         if (getInputValue(buffer, "mono energy") != 1) {
-            printf("Can not find 'mono energy' key on input file.\n");
+            mexPrintf("Can not find 'mono energy' key on input file.\n");
             exit(EXIT_FAILURE);
         }
         source.energy = atof(buffer);
-        printf("%f monoenergetic source\n", source.energy);
+        mexPrintf("%f monoenergetic source\n", source.energy);
         
     }
     
@@ -691,7 +689,7 @@ void initSource() {
     nfields = mxGetScalar(tmp_fieldpointer);
     source.nbeamlets = nfields;
     
-    printf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
+    mexPrintf("%s%d\n", "Total Number of Beamlets:", source.nbeamlets);
     
     tmp_fieldpointer = mxGetField(mcSrc,0,"iBeam");
     const double* iBeamPerBeamlet = mxGetPr(tmp_fieldpointer);
@@ -910,7 +908,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
 
 void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     
-    // Accumulate the results
+    /* Accumulate the results */
     accumulateResults(iout, nhist,nbatch);
     
     int irl;
@@ -930,7 +928,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     char buffer[BUFFER_SIZE];
     
     if (getInputValue(buffer, "output folder") != 1) {
-        printf("Can not find 'output folder' key on input file.\n");
+        mexPrintf("Can not find 'output folder' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     removeSpaces(output_folder, buffer);
@@ -944,7 +942,7 @@ void outputResults(char *output_file, int iout, int nhist, int nbatch) {
     
     FILE *fp;
     if ((fp = fopen(file_name, "w")) == NULL) {
-        printf("Unable to open file: %s\n", file_name);
+        mexPrintf("Unable to open file: %s\n", file_name);
         exit(EXIT_FAILURE);
     }
     
@@ -1011,13 +1009,13 @@ void initRegions() {
     /* First get global energy cutoff parameters */
     char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "global ecut") != 1) {
-        printf("Can not find 'global ecut' key on input file.\n");
+        mexPrintf("Can not find 'global ecut' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     double ecut = atof(buffer);
     
     if (getInputValue(buffer, "global pcut") != 1) {
-        printf("Can not find 'global pcut' key on input file.\n");
+        mexPrintf("Can not find 'global pcut' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     double pcut = atof(buffer);
@@ -1053,7 +1051,7 @@ void initRegions() {
             if (pegs_data.ap[imed] <= pcut) {
                 region.pcut[i] = pcut;
             } else {
-                printf("Warning!, global pcut value is below PEGS's pcut value "
+                mexPrintf("Warning!, global pcut value is below PEGS's pcut value "
                        "%f for medium %d, using PEGS value.\n",
                        pegs_data.ap[imed], imed);
                 region.pcut[i] = pegs_data.ap[imed];
@@ -1061,25 +1059,13 @@ void initRegions() {
             if (pegs_data.ae[imed] <= ecut) {
                 region.ecut[i] = ecut;
             } else {
-                printf("Warning!, global pcut value is below PEGS's ecut value "
+                mexPrintf("Warning!, global pcut value is below PEGS's ecut value "
                        "%f for medium %d, using PEGS value.\n",
                        pegs_data.ae[imed], imed);
             }
         }
     }
 
-    /* Print some information for debugging purposes */
-    if (verbose_flag) {
-        printf("Listing region data: \n");
-        for (int i=0; i<5; i++) {
-            printf("For region %d\n", i);
-            printf("\t med = %d\n", region.med[i]);
-            printf("\t rhof = %f\n", region.rhof[i]);
-            printf("\t pcut = %f\n", region.pcut[i]);
-            printf("\t ecut = %f\n", region.ecut[i]);
-        }
-    }
-    
     return;
 }
 
@@ -1207,20 +1193,42 @@ void initHistory(int ibeamlet) {
     stack.u[stack.np] = -u;
     stack.v[stack.np] = -v;
     stack.w[stack.np] = -w;
+
+    /* For numerical stability, make sure that points are really inside the phantom */
+    if(stack.x[stack.np] < geometry.xbounds[0]) {
+        stack.x[stack.np] = geometry.xbounds[0] + 2.0*DBL_MIN;
+    }
+    if(stack.x[stack.np] > geometry.xbounds[geometry.isize]) {
+        stack.x[stack.np] = geometry.xbounds[geometry.isize] - 2.0*DBL_MIN;
+    }
+
+    if(stack.y[stack.np] < geometry.ybounds[0]) {
+        stack.y[stack.np] = geometry.ybounds[0] + 2.0*DBL_MIN;
+    }
+    if(stack.y[stack.np] > geometry.ybounds[geometry.jsize]) {
+        stack.y[stack.np] = geometry.ybounds[geometry.jsize] - 2.0*DBL_MIN;
+    }
+
+    if(stack.z[stack.np] < geometry.zbounds[0]) {
+        stack.z[stack.np] = geometry.ybounds[0] + 2.0*DBL_MIN;
+    }
+    if(stack.z[stack.np] > geometry.zbounds[geometry.ksize]) {
+      stack.z[stack.np] = geometry.zbounds[geometry.ksize] - 2.0*DBL_MIN;
+    }
     
     /* Determine region index of source particle */
     int ix = 0;
-    while ((geometry.xbounds[ix+1] < stack.x[stack.np]) && ix < geometry.isize-1) {
+    while (geometry.xbounds[ix+1] < stack.x[stack.np]) {
         ix++;
     }
     
     int iy = 0;
-    while ((geometry.ybounds[iy+1] < stack.y[stack.np]) && iy < geometry.jsize-1) {
+    while (geometry.ybounds[iy+1] < stack.y[stack.np]) {
         iy++;
     }
     
     int iz = 0;
-    while ((geometry.zbounds[iz+1] < stack.z[stack.np]) && iz < geometry.ksize-1) {
+    while (geometry.zbounds[iz+1] < stack.z[stack.np]) {
         iz++;
     }
     
@@ -1256,6 +1264,15 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     }
 
     parseInput(nrhs, prhs);
+
+    /* Get information of OpenMP environment */
+#ifdef _OPENMP
+    int omp_size = omp_get_num_procs();
+    mexPrintf("Number of OpenMP threads: %d\n", omp_size);
+    omp_set_num_threads(omp_size);
+#else
+    mexPrintf("ompMC compiled without OpenMP support. Serial execution.\n");
+#endif
     
     /* Read geometry information from matRad and initialize geometry */
     initPhantom();
@@ -1282,29 +1299,18 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
       initStack();
     }
 
-
-        /* In verbose mode, list interaction data to output folder */
-    if (verbose_flag) {
-        listRayleigh();
-        listPair();
-        listPhoton();
-        listElectron();
-        listMscat();
-        listSpin();
-    }
-    
     /* Shower call */
     
     /* Get number of histories and statistical batches */
     char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "ncase") != 1) {
-        printf("Can not find 'ncase' key on input file.\n");
+        mexPrintf("Can not find 'ncase' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     int nhist = atoi(buffer);
     
     if (getInputValue(buffer, "nbatch") != 1) {
-        printf("Can not find 'nbatch' key on input file.\n");
+        mexPrintf("Can not find 'nbatch' key on input file.\n");
         exit(EXIT_FAILURE);
     }
     int nbatch = atoi(buffer);
@@ -1318,17 +1324,17 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     
     int gridsize = geometry.isize*geometry.jsize*geometry.ksize;
     
-    printf("Total number of particle histories: %d\n", nhist);
-    printf("Number of statistical batches: %d\n", nbatch);
-    printf("Histories per batch: %d\n", nperbatch);
+    mexPrintf("Total number of particle histories: %d\n", nhist);
+    mexPrintf("Number of statistical batches: %d\n", nbatch);
+    mexPrintf("Histories per batch: %d\n", nperbatch);
 
     if (getInputValue(buffer, "relative dose threshold") != 1) {
-        printf("Can not find 'relative dose threshold' key on input file.\n");
+        mexPrintf("Can not find 'relative dose threshold' key on input file.\n");
         exit(EXIT_FAILURE);
     }    
     double relDoseThreshold = atof(buffer);
 
-    printf("Using a relative dose cut-off of %f\n",relDoseThreshold);
+    mexPrintf("Using a relative dose cut-off of %f\n",relDoseThreshold);
     
     /* Use Matlab waitbar to show execution progress */
     mxArray* waitbarHandle = 0;                             // the waitbar handle does not exist yet
@@ -1363,7 +1369,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     double progress = 0.0;
 
     /* Execution time up to this point */
-    printf("Execution time up to this point : %8.2f seconds\n",
+    mexPrintf("Execution time up to this point : %8.2f seconds\n",
            (omc_get_time() - tbegin));
     
     for(int ibeamlet=0; ibeamlet<source.nbeamlets; ibeamlet++) {
@@ -1435,7 +1441,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
             }
 
             if (verbose_flag) {
-                printf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n", oldnzmax, nzmax);
+                mexPrintf("Reallocating Sparse Matrix from nzmax=%d to nzmax=%d\n", oldnzmax, nzmax);
             }                
             
             /* Set new nzmax and reallocate more memory */
@@ -1480,7 +1486,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
         mxDestroyArray(waitbarHandle);
 	}
     
-    printf("Sparse MC Dij has %d (%f percent) elements!\n", linIx, 
+    mexPrintf("Sparse MC Dij has %d (%f percent) elements!\n", linIx, 
         (double)linIx/((double)nCubeElements*(double)source.nbeamlets));
     
     /* Truncate the matrix to the exact size by reallocation */
@@ -1492,8 +1498,8 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     irs = mxGetIr(plhs[0]);    
     
     /* Print some output and execution time up to this point */
-    printf("Simulation finished\n");
-    printf("Execution time up to this point : %8.2f seconds\n",
+    mexPrintf("Simulation finished\n");
+    mexPrintf("Execution time up to this point : %8.2f seconds\n",
            (omc_get_time() - tbegin));    
        
     /* Cleaning */
@@ -1515,8 +1521,9 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     }
 
     /* Get total execution time */
-    printf("Total execution time : %8.5f seconds\n",
+    mexPrintf("Total execution time : %8.5f seconds\n",
            (omc_get_time() - tbegin));
     
-    exit (EXIT_SUCCESS);
+    return;
+    
 }
