@@ -21,6 +21,11 @@
  along with this program.  If not, see <https://www.gnu.org/licenses/>.
 *****************************************************************************/
 
+#if defined(_WIN32) || defined(_WIN64)
+    /* We are on Windows */
+    # define strtok_r strtok_s
+#endif
+
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
