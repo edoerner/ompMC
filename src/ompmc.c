@@ -2150,11 +2150,38 @@ void photo() {
 void photon() {
     
     int np = stack.np;              // stack pointer
+    int npold;                      // stack pointer before interactions
     int irl = stack.ir[np];         // region index
+    int irold, irnew;
     int imed = region.med[irl];     // medium index of current region
-    double edep = 0.0;              // deposited energy by particle
-    double eig = stack.e[np];       // energy of incident gamma
+    int idisc;                      // to discard photon if requested
+    double rhof;                    // mass density
     
+    double tstep;                   // distance to a discrete interaction               
+    double ustep, vstep;                   
+    double edep;                    // deposited energy by particle
+    double eig = stack.e[np];       // energy of incident gamma
+
+    double dpmfp, dpmfp_old;
+    double gmfpr0 = 0.0;    // photon mfp before density and coherent correction
+    double gmfp = 0.0;      // photon MFP after density scaling    
+    double gbr1, gbr2;
+
+    double rnno;
+
+    /* Variables needed for photon splitting */
+    int nsplit = 10;    // number of times to split photons
+    int i_survive_s;
+    int ip;
+    double d_eta;
+    double eta_prime;
+    double a_survive;
+        
+    double xsave, ysave, zsave; // photon phase space data before splitting
+    double usave, vsave, wsave;
+    double esave, wtsave;
+    int irsave;
+
     /* First check for photon cutoff energy */
     if (eig <= region.pcut[irl]) {
         edep = eig;
@@ -2165,167 +2192,231 @@ void photon() {
         return;
     }
     
-    /* Select photon mean free path */
-    double rnno = setRandom();
-    if (rnno < 1.0E-30) {
-        rnno = 1.0E-30;
-    }
-    double dpmfp = (-1.0)*log(rnno);
-    
     int lgle = 0;           // index for gamma MFP interpolation
     double gle = log(eig);  /* gle is gamma log energy, here to sample number
                              of mfp to transport before interacting */
     double cohfac = 0.0;    // Rayleigh scattering correction
-    int ptrans = 1;         // variable to control photon transport (true)
-    int pmedium = 1;        /* variable to control pass of photon to
-                             another medium (true) */
+    int ptrans;             // variable to control photon transport (true)
     
-    do {    /* start of "new medium" loop */
-        double gmfpr0 = 0.0;  /* photon mfp before density and coherent
-                               correction */
-        
-        if (imed != -1) {
-            /* Adjust lgle to C indexing */
-            lgle = pwlfInterval(imed, gle,
-                                photon_data.ge1, photon_data.ge0) - 1;
-            gmfpr0 = pwlfEval(imed*MXGE + lgle, gle,
-                              photon_data.gmfp1, photon_data.gmfp0);
-            
+    /* Setup photon splitting VRT */
+    
+    /* ED: I know, goto statements are evil, but it is much clear to use it 
+    than that adding an additional 'do while' loop */
+    start_mfp_loop:
+
+    rnno = setRandom();
+    rnno /= (double)nsplit;
+    d_eta = 1.0/(double)nsplit;
+    eta_prime = 1.0 - rnno + d_eta;
+
+    xsave = stack.x[np]; ysave = stack.y[np]; zsave = stack.z[np];
+    usave = stack.u[np]; vsave = stack.v[np]; wsave = stack.w[np];
+    esave = stack.e[np]; wtsave = stack.wt[np]/(double)nsplit;
+    irsave = stack.ir[np];
+    np -= 1;
+
+    rnno = setRandom();
+    a_survive = rnno*nsplit;
+    i_survive_s = 1 + (int)a_survive;
+    dpmfp_old = 0.0; 
+
+    /* Start of "photon splitting" loop */
+    for(int isplit = 0; isplit < nsplit; isplit++) {
+        ptrans = 1; // i.e. transport the photon
+        eta_prime -= d_eta;
+        if (eta_prime <= 0.0) {
+            goto end_mfp_loop;  // exit "photon splitting" loop
         }
         
-        do {    /* start of "photon transport loop */
-            double tstep;       // distance to a discrete interaction
-            double gmfp = 0.0;  // photon MFP after density scaling
-            double rhof;        // mass density ratio
-            
-            if (imed == -1) {
-                tstep = 10.0E8; // i.e. infinity
-            }
-            else {
-                /* Density ratio scaling templates */
+        dpmfp = -log(eta_prime) - dpmfp_old;
+        dpmfp_old += dpmfp;
+        np += 1;
+
+        if (np >= MXSTACK) {
+            printf ("Stack overflow with np = %d. Increase MXSTACK!\n", np);
+            exit(EXIT_FAILURE);
+        }
+        
+        stack.x[np] = xsave; stack.y[np] = ysave; stack.z[np] = zsave;
+        stack.u[np] = usave; stack.v[np] = vsave; stack.w[np] = wsave;
+        stack.e[np] = esave; stack.wt[np] = wtsave;
+        stack.ir[np] = irsave; stack.iq[np] = 0;
+
+        irl = stack.ir[np];
+        irold = irl;
+        imed = region.med[irl];
+
+        do {    /* start of "transport" loop */                        
+            if (imed != -1) {
+                /* Adjust lgle to C indexing */
+                lgle = pwlfInterval(imed, gle,
+                                    photon_data.ge1, photon_data.ge0) - 1;
+                gmfpr0 = pwlfEval(imed*MXGE + lgle, gle,
+                                photon_data.gmfp1, photon_data.gmfp0);                
+                
+                /* Density scaling */
                 rhof = region.rhof[irl];
                 gmfp = gmfpr0/rhof;
                 
-                /* Rayleigh scattering template */
+                /* Rayleigh correction */
                 cohfac = pwlfEval(imed*MXGE + lgle, gle,
-                                  photon_data.cohe1, photon_data.cohe0);
-                gmfp *= cohfac;
+                                    photon_data.cohe1, photon_data.cohe0);
+                gmfp *= cohfac;    
+
                 tstep = gmfp*dpmfp;
             }
-
-            int irnew = irl;       // default new region number
-            int idisc = 0;          // assume photon is not discarded
-            double ustep = tstep;    // transfer transport distance to user variable
-            
-            if(ustep > stack.dnear[np] || stack.wt[np] <= 0) {
-                howfar(&idisc, &irnew, &ustep);
-            }            
-            
-            if (idisc > 0) {
-                /* User requested inmediate discard */
-                edep = eig;
-                ausgab(edep);
-                stack.np -= 1;
-                return;
+            else {
+                /* Vacuum step */
+                tstep = 1.0E8;
             }
-            
+
+            irnew = irl;        // default new region number
+            idisc = 0;          // assume photon is not discarded
+            ustep = tstep;      // transfer transport distance to user variable
+
+            howfar(&idisc, &irnew, &ustep);
+
             /* Transport distance after truncation by howfar */
-            double vstep = ustep;
-            
+            vstep = ustep;
+            edep = 0.0;
+
             /* Transport the photon */
             stack.x[np] += vstep*stack.u[np];
             stack.y[np] += vstep*stack.v[np];
             stack.z[np] += vstep*stack.w[np];
             stack.dnear[np] -= ustep;
-            
+
+            if (idisc > 0) {
+                /* User requested inmediate discard */
+                np -= 1;
+                stack.np = np;
+                if (np < 0) {
+                    /* Stack is empty, get out of photon() */
+                    return;
+                }
+                goto end_mfp_loop;  // exit "photon splitting" loop
+            }
+
             if (imed != -1) {
                 /* Deduct mean free path */
                 dpmfp = fmax(0.0, dpmfp-ustep/gmfp);
             }
-            int irold = irl;    /* save region before transport */
-            int medold = imed;
-            
+
             if (irnew != irold) {
                 /* Region change */
                 stack.ir[np] = irnew;
-                irl = stack.ir[np];
+                irl = irnew;
+                irold = irnew;
                 imed = region.med[irl];
             }
 
-            if (eig <= region.pcut[irl]) {
-                edep = eig;
-                
-                /* Deposit energy on the spot */
-                ausgab(edep);
-                stack.np -= 1;
-                return;
-            }
-            
-            if (imed != medold) {
-                ptrans = 0;
-            }
-            
+            /* Check if the particle should finish its transport */
             if (imed != -1 && dpmfp <= SGMFP) {
                 /* Time for an interaction */
-                pmedium = 0;
                 ptrans = 0;
-            }
+            }                
+        } while (ptrans); /* end of "transport" loop */
 
-        } while (ptrans);   /* end of "photon transport loop */
-    } while (pmedium); /* end of "new medium" loop */
-    
-    /* Time for an interaction. First check for Rayleigh scattering */
-    rnno = setRandom();
-    if (rnno <= 1.0 - cohfac) {
-        /* It was Rayleigh */
-        rayleigh(imed, eig, gle, lgle);
-    }
-    else {
-        /* Other interactions */
+        xsave = stack.x[np]; ysave = stack.y[np]; zsave = stack.z[np];
+        irsave = stack.ir[np];
+        
+        /* Time for an interaction */
+        npold = np;
+
+        /* First check for Rayleigh scattering */
         rnno = setRandom();
-        
-        /* gbr1 = pair/(pair + compton + photo) = pair/gtotal */
-        double gbr1 = pwlfEval(imed*MXGE + lgle, gle,
-                               photon_data.gbr11, photon_data.gbr10);
-        if (rnno <= gbr1 && eig>2.0*RM) {
-            /* It was pair production */           
-            pair(imed);
-
-            np = stack.np;                  
-            if (stack.iq[np] != 0) {
-                /* Electron to be transported next */
-                return;
+        if (rnno <= 1.0 - cohfac) {
+            /* It was Rayleigh */
+            if (isplit != i_survive_s) {
+                np -= 1;
+                stack.np = np;
+                continue;   // go to beginning of "photon splitting" loop
             }
-        }
-        
-        /* gbr2 = (pair + compton)/gtotal */
-        double gbr2 = pwlfEval(imed*MXGE + lgle, gle,
-                               photon_data.gbr21, photon_data.gbr20);
-        
-        if (rnno < gbr2) {
-            /* It was compton */            
-            compton();      
-
-            np = stack.np;            
-            if (stack.iq[np] != 0) {
-                /* Electron to be transported next */
-                return;
+            else {
+                stack.wt[np] *= nsplit;
+                rayleigh(imed, eig, gle, lgle);
+                continue;   // go to beginning of "photon splitting" loop
             }
         }
         else {
-            /* It was photoelectric */            
-            photo();
+            /* Other interactions */
+            rnno = setRandom();
             
-            if (stack.iq[np] != 0) {
-                /* Electron to be transported next */
-                return;
+            /* gbr1 = pair/(pair + compton + photo) = pair/gtotal */
+            gbr1 = pwlfEval(imed*MXGE + lgle, gle,
+                                photon_data.gbr11, photon_data.gbr10);
+            if (rnno <= gbr1 && eig>2.0*RM) {
+                /* It was pair production */           
+                pair(imed);
+                np = stack.np;
             }
+            else {
+                /* gbr2 = (pair + compton)/gtotal */
+                gbr2 = pwlfEval(imed*MXGE + lgle, gle,
+                                    photon_data.gbr21, photon_data.gbr20);            
+                if (rnno < gbr2) {
+                    /* It was compton */            
+                    compton();      
+                    np = stack.np;  
+                }
+                else {
+                    /* It was photoelectric */            
+                    photo();                
+                    np = stack.np;
+                }
+            }  
         }
+        
+        /* Kill scattered photons with probabily 1/nsplit. Surviving photon 
+        carries the weigth of the original photon */
+        ip = npold;
+        do {
+            if (stack.iq[ip] == 0) {
+                if (isplit != i_survive_s) {
+                    if (ip < np) {
+                        stack.e[ip] = stack.e[np]; stack.iq[ip] = stack.iq[np];
+                        stack.u[ip] = stack.u[np]; stack.v[ip] = stack.v[np];
+                        stack.w[ip] = stack.w[np]; stack.wt[ip] = stack.wt[np];
+                    }
+                    np -= 1;
+                }
+                else {
+                    stack.wt[ip] *= nsplit;
+                    ip += 1;
+                }
+            }
+            else {
+                /* This is a charged particle, skip to the next one */
+                ip += 1;
+            }
+        } while (ip <= np);
+        stack.np = np;
+
+    }   // end of "photon splitting" loop    
+    end_mfp_loop:
+
+    if (np < 0) {
+        return;
     }
     
-    /* If here, photon is the lowest energy particle. The particle exits
-     this function and re-enters to resume transport process */
-    
+    if (stack.iq[np] == 0) {
+        /* Split photon again if energy > pcut */
+        eig = stack.e[np];
+        irl = stack.ir[np];
+        imed = region.med[irl];
+
+        if (eig <= region.pcut[irl]) {
+            edep = eig;
+            ausgab(edep);
+            np -= 1;
+            stack.np = np;
+            return;
+        }
+
+        gle = log(eig);
+        goto start_mfp_loop;
+    }
+        
     return;
 }
 
