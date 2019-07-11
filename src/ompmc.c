@@ -2170,7 +2170,7 @@ void photon() {
     double rnno;
 
     /* Variables needed for photon splitting */
-    int nsplit = 10;    // number of times to split photons
+    int nsplit = vrt.nsplit;    // number of times to split photons
     int i_survive_s;
     int ip;
     double d_eta;
@@ -6203,6 +6203,34 @@ void cleanRegions() {
     free(region.ecut);
     free(region.pcut);
     
+    return;
+}
+
+/******************************************************************************/
+
+/*******************************************************************************
+* Variance reduction techniques definitions
+*******************************************************************************/
+
+struct Vrt vrt;
+
+void initVrt(void) {
+
+    char buffer[BUFFER_SIZE];
+
+    /* Get nsplit parameter, it decides if photon splitting is enabled */
+    if (getInputValue(buffer, "nsplit") != 1) {
+        printf("Can not find 'nsplit' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    vrt.nsplit = atoi(buffer);
+    if(vrt.nsplit > 1) {
+        printf("Photon splitting enabled, nsplit = %d\n", vrt.nsplit);
+    }
+    else {
+        printf("Photon splitting disabled\n");
+    }    
+
     return;
 }
 

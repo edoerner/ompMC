@@ -1172,6 +1172,9 @@ int main (int argc, char **argv) {
     
     /* Initialize data on a region-by-region basis */
     initRegions();
+
+    /* Initialize VRT data */
+    initVrt();
     
     /* Preparation of scoring struct */
     initScore();
@@ -1182,7 +1185,6 @@ int main (int argc, char **argv) {
       initRandom();
 
       /* Initialize particle stack */
-
       initStack();
     }
 

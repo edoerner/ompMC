@@ -504,4 +504,18 @@ extern void cleanRegions(void);
 
 /******************************************************************************/
 
+/*******************************************************************************
+* Variance reduction techniques definitions
+*******************************************************************************/
+
+struct Vrt {
+    /* photon splitting */
+    int nsplit; // number of times the photon is divided
+};
+extern struct Vrt vrt;
+
+extern void initVrt(void);
+
+/******************************************************************************/
+
 #endif  // OMPMC_H

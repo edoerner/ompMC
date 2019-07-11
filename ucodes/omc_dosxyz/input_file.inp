@@ -7,7 +7,7 @@ ssd = 90.0
 # end source definition
                               
 # start MC control          
-ncase  = 1000000
+ncase  = 10000
 nbatch = 10
 rng seeds = 97 33
 # stop MC control           
@@ -23,6 +23,10 @@ global pcut = 0.010
 pegs file = ./../../pegs4/700icru.pegs4dat
 pgs4form file = ./../../pegs4/pgs4form.dat     
 # stop MC transport
+
+# start VRT
+nsplit = 10
+# stop VRT
 
 # start ompMC environment
 data folder = ./../../data/
