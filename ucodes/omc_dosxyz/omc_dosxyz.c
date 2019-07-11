@@ -1272,8 +1272,6 @@ int main (int argc, char **argv) {
         }
         printf("Fraction of incident energy deposited in the phantom: %5.4f\n",
                etot/score.ensrc);
-        printf("Fraction of incident energy outside the phantom: %5.4f\n",
-               score.accum_endep[0]/score.ensrc);
     }
     
     int iout = 1;   /* i.e. deposit mean dose per particle fluence */

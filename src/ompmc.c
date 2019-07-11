@@ -2213,8 +2213,10 @@ void photon() {
     usave = stack.u[np]; vsave = stack.v[np]; wsave = stack.w[np];
     esave = stack.e[np]; wtsave = stack.wt[np]/(double)nsplit;
     irsave = stack.ir[np];
+
     np -= 1;
 
+    /* Sample which scattered photon will survive splitting */
     rnno = setRandom();
     a_survive = rnno*nsplit;
     i_survive_s = 1 + (int)a_survive;
@@ -2230,7 +2232,9 @@ void photon() {
         
         dpmfp = -log(eta_prime) - dpmfp_old;
         dpmfp_old += dpmfp;
+        
         np += 1;
+        stack.np = np;
 
         if (np >= MXSTACK) {
             printf ("Stack overflow with np = %d. Increase MXSTACK!\n", np);
@@ -2281,10 +2285,9 @@ void photon() {
             edep = 0.0;
 
             /* Transport the photon */
-            stack.x[np] += vstep*stack.u[np];
-            stack.y[np] += vstep*stack.v[np];
-            stack.z[np] += vstep*stack.w[np];
-            stack.dnear[np] -= ustep;
+            stack.x[np] += ustep*stack.u[np];
+            stack.y[np] += ustep*stack.v[np];
+            stack.z[np] += ustep*stack.w[np];
 
             if (idisc > 0) {
                 /* User requested inmediate discard */
