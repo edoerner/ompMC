@@ -2219,7 +2219,7 @@ void photon() {
     /* Sample which scattered photon will survive splitting */
     rnno = setRandom();
     a_survive = rnno*nsplit;
-    i_survive_s = 1 + (int)a_survive;
+    i_survive_s = (int)a_survive;
     dpmfp_old = 0.0; 
 
     /* Start of "photon splitting" loop */

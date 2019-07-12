@@ -21,7 +21,7 @@ SOURCES = $(UCODE).c ../../src/ompmc.c
 CC = gcc
 
 # Compiler flags:
-CFLAGS = -lm -fopenmp
+CFLAGS = -lm -O2 -mtune=native
 
 # The build target executable:
 TARGET = $(UCODE).out

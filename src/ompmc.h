@@ -136,7 +136,7 @@ extern double hownear(void);
 #define RM 0.5109989461     // MeV * c^(-2)
 
 /* Common functions and definitions */
-#define MXSTACK 100 // maximum number of particles in stack
+#define MXSTACK 10000 // maximum number of particles in stack
 
 struct Stack {
     int np;         // stack pointer
