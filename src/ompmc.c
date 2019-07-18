@@ -1731,6 +1731,8 @@ void pair(int imed) {
     double ese1, ese2;          /* energy of "electrons" */
     int iq1, iq2;               /* charge of "electrons" */
     int l, l1;                  /* flags for high/low energy distributions */
+
+    stack.npold = np;   // set old stack counter before interaction
     
     if (eig <= 2.1) {
         /* Use low energy pair production aproximation. It corresponds to an
@@ -1987,6 +1989,8 @@ void compton() {
     double alpha = 0.0;
     double rejmax = 0.0;   /* max. of rejf3 in the case of uniform sampling */
 
+    stack.npold = np;   // set old stack counter before interaction
+
     do {
         if(ko > 2.0) {
             /* At high energies the original EGS4 method is more efficient */
@@ -2079,6 +2083,7 @@ void compton() {
 void photo() {
     
     int np = stack.np;
+    stack.npold = np;   // set old stack counter before interaction
     
     /* Set energy and charge of the new electron */
     stack.e[np] += RM;
@@ -2141,7 +2146,6 @@ void photo() {
 void photon() {
     
     int np = stack.np;              // stack pointer
-    int npold;                      // stack pointer before interactions
     int irl = stack.ir[np];         // region index
     int irold, irnew;
     int imed = region.med[irl];     // medium index of current region
@@ -2174,7 +2178,7 @@ void photon() {
     int irsave;
 
     /* First check for photon cutoff energy */
-    if (eig <= region.pcut[irl]) {
+    if (eig <= region.pcut[irl] || stack.wt[np] == 0) {
         edep = eig;
         
         /* Deposit energy on the spot */
@@ -2315,8 +2319,7 @@ void photon() {
         irsave = stack.ir[np];
         
         /* Time for an interaction */
-        npold = np;
-
+        
         /* First check for Rayleigh scattering */
         rnno = setRandom();
         if (rnno <= 1.0 - cohfac) {
@@ -2363,7 +2366,7 @@ void photon() {
         
         /* Kill scattered photons with probabily 1/nsplit. Surviving photon 
         carries the weigth of the original photon */
-        ip = npold;
+        ip = stack.npold;
         do {
             if (stack.iq[ip] == 0) {
                 if (isplit != i_survive_s) {
@@ -4407,6 +4410,8 @@ void rannih() {
     /* Pick random direction for first gamma */
     double rnno;
     int np = stack.np;
+
+    stack.npold = np;   // set old stack counter before interaction
     
     /* Polar angle selection */
     rnno = setRandom();
@@ -4437,6 +4442,23 @@ void rannih() {
     
     /* Update stack */
     stack.np = np;
+
+    /* If photon splitting is enabled, perform russian roulette on higher order
+    photons */
+    if(vrt.nsplit > 1) {
+        for (int ip = stack.npold; ip <= stack.np; ip++) {
+            if (stack.iq[ip] == 0) {
+                rnno = setRandom();
+                if (rnno*(double)vrt.nsplit > 1.0) {
+                    stack.wt[ip] = 0.0;
+                    stack.e[ip] = 0.0;
+                }
+                else {
+                    stack.wt[ip] *= vrt.nsplit;
+                }
+            }            
+        }        
+    }
     
     return;
 }
@@ -4453,6 +4475,8 @@ void brems() {
 	
     double eie = stack.e[np];   // energy of incident electron
 	double phi1; double phi2;   // screening function
+
+    stack.npold = np;   // set old stack counter before interaction
 	
 	/* Decide which distribution to use:
 	Coulomb corrected Bethe-Heitler above 50 MeV
@@ -4608,6 +4632,23 @@ void brems() {
 	/* Update stack index */
 	stack.np = np;
 
+    /* If photon splitting is enabled, perform russian roulette on higher order
+    photons */
+    if(vrt.nsplit > 1) {
+        for (int ip = stack.npold; ip <= stack.np; ip++) {
+            if (stack.iq[ip] == 0) {
+                rnno06 = setRandom();
+                if (rnno06*(double)vrt.nsplit > 1.0) {
+                    stack.wt[ip] = 0.0;
+                    stack.e[ip] = 0.0;
+                }
+                else {
+                    stack.wt[ip] *= vrt.nsplit;
+                }
+            }            
+        }        
+    }
+
     return;
 }
 
@@ -4626,6 +4667,8 @@ void moller() {
     int imed = region.med[irl];
     double eie = stack.e[np];   // total energy of incident electron
 	double ekin = eie - RM;	    // kinetic energy of incident electron
+
+    stack.npold = np;   // set old stack counter before interaction
 
     if(ekin <= 2.0*pegs_data.te[imed]) { 
 		/* Kinetic energy threshold not reached, therefore a Moller scattering
@@ -4713,6 +4756,8 @@ void bhabha() {
 	double ep0c = 1.0 - ep0;
 	double yp = 1.0 - 2.0*yy;
 
+    stack.npold = np;   // set old stack counter before interaction
+
     /* Used in rejection function calculation */
 	double b1; double b2; double b3; double b4; 
 	b4 = pow(yp, 3.0);
@@ -4789,6 +4834,8 @@ void annih() {
 	g = a - 1.0;
 	t = g - 1.0;
 	p = sqrt(a*t);
+
+    stack.npold = np;   // set old stack counter before interaction
 
 	double pot = p/t;                       // "p over t"
 	double ep0 = 1.0/(a+p);                 // minimum fractional energy
@@ -4873,6 +4920,23 @@ void annih() {
 
 	/* Update stack index */
 	stack.np = np;
+
+    /* If photon splitting is enabled, perform russian roulette on higher order
+    photons */
+    if(vrt.nsplit > 1) {
+        for (int ip = stack.npold; ip <= stack.np; ip++) {
+            if (stack.iq[ip] == 0) {
+                rnno01 = setRandom();
+                if (rnno01*(double)vrt.nsplit > 1.0) {
+                    stack.wt[ip] = 0.0;
+                    stack.e[ip] = 0.0;
+                }
+                else {
+                    stack.wt[ip] *= vrt.nsplit;
+                }
+            }            
+        }        
+    }
 
     return;
 }

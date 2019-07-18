@@ -140,6 +140,7 @@ extern double hownear(void);
 
 struct Stack {
     int np;         // stack pointer
+    int npold;       // stack pointer before interactions
     
     int *iq;        // particle charge
     int *ir;        // current region
