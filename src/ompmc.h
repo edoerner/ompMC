@@ -100,7 +100,7 @@ struct Random {
     double twom24;
 };
 
-extern struct Random rng;
+struct Random rng;
 #pragma omp threadprivate(rng)
 
 /* Initialization function for the RANMAR random number generator (RNG) 
@@ -157,7 +157,7 @@ struct Stack {
     double *dnear;  // perpendicular distance to nearest boundary
     double *wt;     // particle weight
 };
-extern struct Stack stack;
+struct Stack stack;
 #pragma omp threadprivate(stack)
 
 extern void initStack(void);
@@ -190,7 +190,7 @@ struct Photon {
     double *gbr20, *gbr21;
     double *cohe0, *cohe1;
 };
-extern struct Photon photon_data;
+struct Photon photon_data;
 
 extern void readXsecData(char *file, int *ndat,
                   double **xsec_data0,
@@ -222,7 +222,7 @@ struct Rayleigh {
     double *pmax1;
     int *i_array;
 };
-extern struct Rayleigh rayleigh_data;
+struct Rayleigh rayleigh_data;
 
 extern void readFfData(double *xval, double **aff);
 extern void initRayleighData(void);
@@ -246,8 +246,7 @@ struct Pair {
     double *delcm;
     double *zbrang;
 };
-
-extern struct Pair pair_data;
+struct Pair pair_data;
 
 extern double fcoulc(double zi);
 extern double xsif(double zi, double fc);
@@ -330,7 +329,7 @@ struct Electron {
     double *expeke1;
     
 };
-extern struct Electron electron_data;
+struct Electron electron_data;
 
 extern void cleanElectron(void);
 extern void listElectron(void);
@@ -349,7 +348,7 @@ struct Spin {
     double dqq1i;
     double *spin_rej;
 };
-extern struct Spin spin_data;
+struct Spin spin_data;
 
 struct Spinr {
     /* This structure holds data saved between spinRejection calls */
@@ -389,7 +388,7 @@ struct Mscat {
     double dllambi;
     double dqmsi;
 };
-extern struct Mscat mscat_data;
+struct Mscat mscat_data;
 
 struct Mscats {
     /* This structure holds data saved between mscat calls */
@@ -445,7 +444,7 @@ struct Media {
     int nmed;                   // number of media in the problem
     char med_names[MXMED][60];  // media names
 };
-extern struct Media media;
+struct Media media;
 
 struct Element {
     /* Attributes of an element in a medium */
@@ -483,7 +482,7 @@ struct Pegs {
     
     struct Element elements[MXMED][MXELEMENT];  // element properties
 };
-extern struct Pegs pegs_data;
+struct Pegs pegs_data;
 
 extern void initMediaData(void);
 extern int readPegsFile(int *media_found);
@@ -497,7 +496,7 @@ struct Region {
     double *pcut;
     double *ecut;
 };
-extern struct Region region;
+struct Region region;
 
 extern void initRegions(void);  // this function must be defined in user code
 extern void cleanRegions(void);
