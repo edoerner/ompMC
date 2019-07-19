@@ -173,6 +173,17 @@ int input_idx = 0;                              // number of key,value pair
 * initRandom(). 
 *******************************************************************************/
 
+/* Common functions and definitions */
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid 
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	__declspec(thread) struct Random rng;
+#else
+	#pragma omp threadprivate(rng)
+	struct Random rng;
+#endif
+
 /* Initialization function for the RANMAR random number generator (RNG) 
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
 used in ompMC. */
@@ -340,6 +351,15 @@ void cleanRandom() {
 *******************************************************************************/
 
 /* Common functions and definitions */
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid 
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	__declspec(thread) struct Stack stack;
+#else
+	#pragma omp threadprivate(stack)
+	struct Stack stack;
+#endif
 
 void initStack() {
     
@@ -5910,7 +5930,7 @@ int readPegsFile(int *media_found) {
             int i = 0;
             char* name2[20];
             char* name3 = NULL;
-            char* value;
+            char* value = NULL;
             
             while (token) {
                 char *temp2 = token;
