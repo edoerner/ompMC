@@ -99,8 +99,7 @@ struct Random {
     int *rng_array;
     double twom24;
 };
-
-struct Random rng;
+extern struct Random rng;
 #pragma omp threadprivate(rng)
 
 /* Initialization function for the RANMAR random number generator (RNG) 
@@ -157,7 +156,7 @@ struct Stack {
     double *dnear;  // perpendicular distance to nearest boundary
     double *wt;     // particle weight
 };
-struct Stack stack;
+extern struct Stack stack;
 #pragma omp threadprivate(stack)
 
 extern void initStack(void);

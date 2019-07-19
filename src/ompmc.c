@@ -172,6 +172,8 @@ int input_idx = 0;                              // number of key,value pair
 * Before using the RNG, it is needed to initialize the RNG by a call to 
 * initRandom(). 
 *******************************************************************************/
+#pragma omp threadprivate(rng)
+struct Random rng;
 
 /* Initialization function for the RANMAR random number generator (RNG) 
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
@@ -340,6 +342,9 @@ void cleanRandom() {
 *******************************************************************************/
 
 /* Common functions and definitions */
+#pragma omp threadprivate(stack)
+struct Stack stack;
+
 
 void initStack() {
     
@@ -5752,7 +5757,7 @@ int readPegsFile(int *media_found) {
             int i = 0;
             char* name2[20];
             char* name3 = NULL;
-            char* value;
+            char* value = NULL;
             
             while (token) {
                 char *temp2 = token;
