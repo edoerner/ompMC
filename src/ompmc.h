@@ -99,8 +99,16 @@ struct Random {
     int *rng_array;
     double twom24;
 };
-extern struct Random rng;
-#pragma omp threadprivate(rng)
+
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	extern __declspec(thread) struct Random rng;
+#else
+	extern struct Random rng;
+	#pragma omp threadprivate(rng)
+#endif
 
 /* Initialization function for the RANMAR random number generator (RNG) 
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
@@ -156,8 +164,16 @@ struct Stack {
     double *dnear;  // perpendicular distance to nearest boundary
     double *wt;     // particle weight
 };
-extern struct Stack stack;
-#pragma omp threadprivate(stack)
+
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	extern __declspec(thread) struct Stack stack;
+#else
+	extern struct Stack stack;
+	#pragma omp threadprivate(stack)
+#endif
 
 extern void initStack(void);
 extern void cleanStack(void);
