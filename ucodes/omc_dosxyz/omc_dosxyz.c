@@ -32,6 +32,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _OPENMP
+    #include <omp.h>
+#endif
+
 /******************************************************************************/
 /* Parsing program options with getopt long
  http://www.gnu.org/software/libc/manual/html_node/Getopt.html#Getopt */
@@ -951,18 +955,6 @@ void initRegions() {
             }
         }
     }
-
-    /* Print some information for debugging purposes */
-    if (verbose_flag) {
-        printf("Listing region data: \n");
-        for (int i=0; i<5; i++) {
-            printf("For region %d\n", i);
-            printf("\t med = %d\n", region.med[i]);
-            printf("\t rhof = %f\n", region.rhof[i]);
-            printf("\t pcut = %f\n", region.pcut[i]);
-            printf("\t ecut = %f\n", region.ecut[i]);
-        }
-    }
     
     return;
 }
@@ -1159,6 +1151,15 @@ int main (int argc, char **argv) {
     
     /* Parse input file and print key,value pairs (test) */
     parseInputFile(input_file);
+
+    /* Get information of OpenMP environment */
+#ifdef _OPENMP
+    int omp_size = omp_get_num_procs();
+    printf("Number of OpenMP threads: %d\n", omp_size);
+    omp_set_num_threads(omp_size);
+#else
+    printf("ompMC compiled without OpenMP support. Serial execution.\n");
+#endif
     
     /* Read geometry information from phantom file and initialize geometry */
     initPhantom();
@@ -1186,7 +1187,7 @@ int main (int argc, char **argv) {
     }
 
 
-        /* In verbose mode, list interaction data to output folder */
+    /* In verbose mode, list interaction data to output folder */
     if (verbose_flag) {
         listRayleigh();
         listPair();
