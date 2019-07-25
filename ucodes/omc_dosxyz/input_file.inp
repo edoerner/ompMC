@@ -24,6 +24,10 @@ pegs file = ./../../pegs4/700icru.pegs4dat
 pgs4form file = ./../../pegs4/pgs4form.dat     
 # stop MC transport
 
+# start VRT
+nsplit = 10
+# stop VRT
+
 # start ompMC environment
 data folder = ./../../data/
 output folder = ./../../output/

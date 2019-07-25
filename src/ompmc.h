@@ -143,10 +143,11 @@ extern double hownear(void);
 #define RM 0.5109989461     // MeV * c^(-2)
 
 /* Common functions and definitions */
-#define MXSTACK 100 // maximum number of particles in stack
+#define MXSTACK 10000 // maximum number of particles in stack
 
 struct Stack {
     int np;         // stack pointer
+    int npold;       // stack pointer before interactions
     
     int *iq;        // particle charge
     int *ir;        // current region
@@ -515,6 +516,20 @@ struct Region region;
 
 extern void initRegions(void);  // this function must be defined in user code
 extern void cleanRegions(void);
+
+/******************************************************************************/
+
+/*******************************************************************************
+* Variance reduction techniques definitions
+*******************************************************************************/
+
+struct Vrt {
+    /* photon splitting */
+    int nsplit; // number of times the photon is divided
+};
+extern struct Vrt vrt;
+
+extern void initVrt(void);
 
 /******************************************************************************/
 
