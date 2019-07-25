@@ -705,7 +705,7 @@ void accumEndep() {
         edep = score.endep[irl];
         
         score.accum_endep[irl] += edep;
-        score.accum_endep2[irl] += pow(edep, 2.0);
+        score.accum_endep2[irl] += edep*edep;
     }
     
     /* Clean scoring array */
@@ -741,7 +741,7 @@ void accumulateResults(int iout, int nhist, int nbatch)
                 
                 /* Batch approach uncertainty calculation */
                 if (endep != 0.0) {
-                    unc_endep = endep2 - pow(endep, 2.0);
+                    unc_endep = endep2 - endep*endep;
                     unc_endep /= (double)(nbatch - 1);
                     
                     /* Relative uncertainty */
@@ -1021,13 +1021,13 @@ void initHistory() {
             rnno3 = setRandom();
             stack.y[stack.np] = rnno3*source.ysize + source.yinl;
             rnno3 = setRandom();
-            rxyz = sqrt(pow(source.ssd, 2.0) + pow(stack.x[stack.np], 2.0) +
-                        pow(stack.y[stack.np], 2.0));
+            rxyz = sqrt(source.ssd*source.ssd + 
+				stack.x[stack.np]*stack.x[stack.np] +
+				stack.y[stack.np]*stack.y[stack.np]);
             
             /* Get direction along z-axis */
             stack.w[stack.np] = source.ssd/rxyz;
-
-            fw = pow(stack.w[stack.np], 3.0);
+            fw = stack.w[stack.np]*stack.w[stack.np]*stack.w[stack.np];
         } while(rnno3 >= fw);
     }
     /* Set position of the particle in front of the geometry */

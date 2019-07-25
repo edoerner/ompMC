@@ -457,7 +457,7 @@ void uphi21(struct Uphi *uphi,
     uphi->B = stack.v[np];
     uphi->C = stack.w[np];
     
-    double sinps2 = pow(uphi->A, 2.0) + pow(uphi->B, 2.0);
+    double sinps2 = uphi->A*uphi->A + uphi->B*uphi->B;
     
     /* Small polar change */
     if (sinps2 < 1.0E-20) {
@@ -494,7 +494,7 @@ void uphi32(struct Uphi *uphi,
     transferProperties(np, np-1);
     
     /* Now adjust direction of the second particle */
-    double sinps2 = pow(uphi->A, 2.0) + pow(uphi->B, 2.0);
+    double sinps2 = uphi->A*uphi->A + uphi->B*uphi->B;
     
     /* Small polar change */
     if (sinps2 < 1E-20) {
@@ -1803,7 +1803,7 @@ void pair(int imed) {
             }
             /* and then calculate the probability for sampling from (br-1/2)^2*/
             aux = 1.0 - 2.0*RM/eig;
-            aux = pow(aux, 2.0);
+            aux = aux*aux;
             aux *= Amax/3.0;
             aux /= (Bmax + aux);
 
@@ -1914,9 +1914,9 @@ void pair(int imed) {
         double xitry = fmax(0.01, fmax(ximin, fmin(0.5,
             sqrt(ya/pair_data.zbrang[imed]))));
         double galpha = 1.0 + 0.25*log(ya +
-            pair_data.zbrang[imed]*pow(xitry, 2.0));
+            pair_data.zbrang[imed]*xitry*xitry);
         double gbeta = 0.5*pair_data.zbrang[imed]*xitry/(ya +
-            pair_data.zbrang[imed]*pow(xitry, 2.0));
+            pair_data.zbrang[imed]*xitry*xitry);
         galpha -= gbeta*(xitry - 0.5);
         double ximid = galpha/(3.0*gbeta);
         
@@ -2053,7 +2053,7 @@ void compton() {
                 temp = (1.0 - br)/(ko*br);
                 sinthe = fmax(0.0, temp*(2.0 - temp));
                 
-                rejf3 = 1.0 + pow(br, 2.0) - br*sinthe;
+                rejf3 = 1.0 + br*br - br*sinthe;
             } while(rnno2*br*rejmax > rejf3);
         }
         
@@ -2076,7 +2076,7 @@ void compton() {
     stack.np = np;
     
     /* Adjust direction of new electron */
-    aux = 1.0 + pow(br, 2.0) - 2.0*br*costhe;
+    aux = 1.0 + br*br - 2.0*br*costhe;
     if(aux > 1.0E-8) {
         costhe = (1.0 - br*costhe)/sqrt(aux);
         sinthe = (1.0 - costhe)*(1.0 + costhe);
@@ -4246,7 +4246,7 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
     double wt = eta1*(1.0 + temp) + b*w1 + c*w2 + eta1*ws*temp1;
 
 	/* Calculate transport distance */
-	double ustep = tustep*sqrt(pow(ut, 2.0) + pow(vt, 2.0) + pow(wt, 2.0));
+	double ustep = tustep*sqrt(ut*ut + vt*vt + wt*wt);
 
 	/* Rotate into the final direction of motion and transport relative to 
     original direction of motion */
@@ -4257,7 +4257,7 @@ double msdist(int imed, int iq, double rhof, double de, double tustep,
     double u0 = stack.u[np];
     double v0 = stack.v[np];
     double w0 = stack.w[np];    
-	double sint02 = pow(u0, 2.0) + pow(v0, 2.0);
+	double sint02 = u0*u0 + v0*v0;
 
     if (sint02 > 1.0E-20) {
 		double sint0  = sqrt(sint02);
@@ -4310,7 +4310,7 @@ double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
 
 	/* First evaluate the logarithm of the energy midpoint */
 	double elktmp = 0.5*(elkei + elkef +
-		0.25*pow(fedep, 2.0)*(1.0 + fedep*(1.0 + 0.875*fedep)));
+		0.25*fedep*fedep*(1.0 + fedep*(1.0 + 0.875*fedep)));
 
 	if (iq < 0) {
 		dedxmid = pwlfEval(MXEKE*imed+lelke, elktmp, 
@@ -4325,7 +4325,7 @@ double computeDrange(int imed, int iq, int lelke, double ekei, double ekef,
 		aux = electron_data.pdedx1[MXEKE*imed+lelke]*dedxmid;
 	}
 
-	aux = aux*(1.0 + 2.0*aux)*pow(fedep/(2.0 - fedep),2.0)/6.0;
+	aux = aux*(1.0 + 2.0*aux)*fedep*fedep/(6.0*(2.0 - fedep)*(2.0 - fedep));
 
 	return fedep*ekei*dedxmid*(1.0 + aux);
 }
@@ -4527,7 +4527,7 @@ void brems() {
     b = stack.v[np];
     c = stack.w[np];
 
-    sinpsi = pow(a, 2.0) + pow(b, 2.0);
+    sinpsi = a*a + b*b;
     if(sinpsi > 1.0E-20) {
         sinpsi = sqrt(sinpsi);
         sindel = b/sinpsi;
@@ -4596,7 +4596,7 @@ void brems() {
 
     double rtest = 1.0; double rejtst= 0.0;
     aux = 2.0*ese*tteie/esg;
-    aux = pow(aux, 2.0);
+    aux = aux*aux;
     double aux1 = aux*ztarg;
 
     if(aux1 > 10.0) {
@@ -5329,7 +5329,8 @@ void electron() {
 
                     /* Calculate number of mean free paths (elastic scattering cross-section)*/
 					double lambda = (-1.0)*log(1.0 - rnno); 
-					double lambda_max = 0.5*blccl*RM/dedx*pow((eke/RM+1.0),3.0);
+					double lambda_max = 0.5*blccl*RM/dedx;
+					lambda_max *= (eke/RM + 1.0)*(eke/RM + 1.0)*(eke/RM + 1.0);
                                         
                     if (lambda >= 0.0 && lambda_max > 0.0) {
                         if (lambda < lambda_max) {
