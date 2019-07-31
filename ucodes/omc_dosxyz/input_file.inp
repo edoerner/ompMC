@@ -7,7 +7,7 @@ ssd = 90.0
 # end source definition
                               
 # start MC control          
-ncase  = 1000000
+ncase  = 10000000
 nbatch = 10
 rng seeds = 97 33
 # stop MC control           
@@ -25,7 +25,7 @@ pgs4form file = ./../../pegs4/pgs4form.dat
 # stop MC transport
 
 # start VRT
-nsplit = 10
+nsplit = 5
 # stop VRT
 
 # start ompMC environment
