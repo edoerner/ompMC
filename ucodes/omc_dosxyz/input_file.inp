@@ -18,9 +18,9 @@ phantom file = ./../../phantoms/WATER.egsphant
 # stop geometry         
                               
 # start MC transport
-global ecut = 0.700
+global ecut = 0.521
 global pcut = 0.010    
-pegs file = ./../../pegs4/700icru.pegs4dat
+pegs file = ./../../pegs4/521icru.pegs4dat
 pgs4form file = ./../../pegs4/pgs4form.dat     
 # stop MC transport
 
