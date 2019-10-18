@@ -172,7 +172,17 @@ int input_idx = 0;                              // number of key,value pair
 * Before using the RNG, it is needed to initialize the RNG by a call to 
 * initRandom(). 
 *******************************************************************************/
-struct Random rng;
+
+/* Common functions and definitions */
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid 
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	__declspec(thread) struct Random rng;
+#else
+	#pragma omp threadprivate(rng)
+	struct Random rng;
+#endif
 
 /* Initialization function for the RANMAR random number generator (RNG) 
 proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
@@ -341,7 +351,15 @@ void cleanRandom() {
 *******************************************************************************/
 
 /* Common functions and definitions */
-struct Stack stack;
+#if defined(_MSC_VER)
+	/* use __declspec(thread) instead of threadprivate to avoid 
+	error C3053. More information in:
+	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
+	__declspec(thread) struct Stack stack;
+#else
+	#pragma omp threadprivate(stack)
+	struct Stack stack;
+#endif
 
 void initStack() {
     
@@ -512,9 +530,6 @@ double pwlfEval(int idx, double lvar, double *coef1, double *coef0) {
 /*******************************************************************************
 * Photon physical processes definitions
 *******************************************************************************/
-
-struct Photon photon_data;
-
 void readXsecData(char *file, int *ndat,
                   double **xsec_data0,
                   double **xsec_data1) {
@@ -1056,8 +1071,6 @@ void listPhoton() {
 }
 
 /* Rayleigh scattering definitions */
-struct Rayleigh rayleigh_data;
-
 void readFfData(double *xval, double **aff) {
     
     /* Get file path from input data */
@@ -1449,8 +1462,6 @@ void rayleigh(int imed, double eig, double gle, int lgle) {
 }
 
 /* Pair production definitions */
-struct Pair pair_data;
-
 double fcoulc(double zi) {
     /* Calculates correction to Coulomb factor used in init_pair_data */
     
@@ -2332,8 +2343,6 @@ void photon() {
 /*******************************************************************************
 * Electron physical processes definitions
 *******************************************************************************/
-struct Electron electron_data;
-
 void cleanElectron() {
     
     free(electron_data.blcc);
@@ -2584,8 +2593,6 @@ void listElectron(void) {
 }
 
 /* Spin data */
-struct Spin spin_data;
-
 void initSpinData(int nmed) {
     
     /* Get file path from input data */
@@ -3410,8 +3417,6 @@ void sscat(int imed, int qel, double chia2, double elke, double beta2,
 
 	return;
 }
-
-struct Mscat mscat_data;
 
 void readRutherfordMscat(int nmed) {
     
@@ -5600,10 +5605,6 @@ void shower() {
 }
 
 /* Media definitions */
-struct Media media;
-
-struct Pegs pegs_data;
-
 void initMediaData(){
     
     /* Array that indicates if medium was found on pegs file or not */
@@ -5771,7 +5772,7 @@ int readPegsFile(int *media_found) {
             int i = 0;
             char* name2[20];
             char* name3 = NULL;
-            char* value;
+            char* value = NULL;
             
             while (token) {
                 char *temp2 = token;
@@ -6100,8 +6101,6 @@ int readPegsFile(int *media_found) {
 }
 
 /* Region-by-region data definition */
-struct Region region;
-
 void cleanRegions() {
     
     free(region.med);
