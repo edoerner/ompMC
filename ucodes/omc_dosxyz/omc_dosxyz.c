@@ -1066,6 +1066,167 @@ void initHistory() {
 }
 
 /******************************************************************************/
+/* Electron kernels definitions */
+struct Ekernels {
+    int nenergy;
+    int isize;
+    int jsize;
+    int ksize;
+
+    double *energy;
+    double *ndose;
+};
+struct Ekernels ekernels;
+
+void initEkernels() {
+
+    /* Get kernel file path from input data */
+    char kernel_file[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "kernel file") != 1) {
+        printf("Can not find 'kernel file' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(kernel_file, buffer);
+
+    /* Open .txt file */
+    FILE *fp;
+    
+    if ((fp = fopen(kernel_file, "r")) == NULL) {
+        printf("Unable to open file: %s\n", kernel_file);
+        exit(EXIT_FAILURE);
+    }
+    
+    printf("Path to electron kernels file : %s\n", kernel_file);
+
+    /* Get number of total energies on kernel */
+    fgets(buffer, BUFFER_SIZE, fp);
+    ekernels.nenergy = atoi(buffer)+1; // including 'zero' energy kernel
+    
+    printf("Number of energies in kernels, %d\n", ekernels.nenergy);
+
+    /* Read energy array */
+    ekernels.energy = malloc(ekernels.nenergy*sizeof(double));
+
+    ekernels.energy[0] = 0.0;
+    for (int i=1; i<ekernels.nenergy; i++) {
+        fscanf(fp, "%lf", &ekernels.energy[i]);
+        //printf("%f, ", ekernels.energy[i]);
+    }
+
+    /* Skip the rest of the last line and jump to next one */
+    fgets(buffer, BUFFER_SIZE, fp);
+    
+    /* Get kernel size on each direction */
+    fgets(buffer, BUFFER_SIZE, fp);
+    sscanf(buffer, "%d %d %d", &ekernels.isize,
+        &ekernels.jsize, &ekernels.ksize);
+
+    printf("Size of electron kernels:, %d %d %d\n", ekernels.isize, 
+        ekernels.jsize, ekernels.ksize);
+
+    /* Read kernel values */
+    int size = ekernels.isize*ekernels.jsize*ekernels.ksize;
+    ekernels.ndose = malloc((size*ekernels.nenergy)*sizeof(double));
+    
+    /* Fill the 'zero' kernel with zeros, before advancing to the other ones. */
+    for (int j = 0; j<size; j++) {
+        ekernels.ndose[j] = 0.0;
+    }
+    
+    for (int i=1; i<ekernels.nenergy; i++) {
+        for (int j=0; j<size; j++) {
+            fscanf(fp, "%lf", &ekernels.ndose[i*size + j]);
+            //printf("%e, ", ekernels.ndose[i*size + j]);
+        }        
+        /* Skip the rest of the last line read before reading next kernel */
+        fgets(buffer, BUFFER_SIZE, fp);
+        //printf("\n");
+    }      
+
+    /* Close kernel file */
+    fclose(fp);
+
+    return;
+}
+
+void listEkernels() {
+
+    /* Get output folder from input data */
+    char output_folder[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE];
+    
+    if (getInputValue(buffer, "output folder") != 1) {
+        printf("Can not find 'output folder' key on input file.\n");
+        exit(EXIT_FAILURE);
+    }
+    removeSpaces(output_folder, buffer);
+
+    /* The idea is to create a 3ddose file for each electron deposition kernel, 
+    the user must hard-code the resolution on each dimension */
+    double dx = 0.5; double dy = 0.5; double dz = 0.2;
+    int size = ekernels.isize*ekernels.jsize*ekernels.ksize;
+    int irl;
+
+    for (int i = 1; i < ekernels.nenergy; i++) {
+        /* Open 3ddose file for current energy. Skip 'zero' kernel */
+        sprintf(buffer, "ekernel_h2o_%2.1f", ekernels.energy[i]);
+        strcat(buffer, ".3ddose");
+
+        char *file_name = malloc(strlen(output_folder)+strlen(buffer)+1);
+        strcpy(file_name, output_folder);
+        strcat(file_name, buffer);
+
+        FILE *fp;
+        if ((fp = fopen(file_name, "w")) == NULL) {
+            printf("Unable to open file: %s\n", file_name);
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Electron kernel file : %s\n", file_name);
+
+        /* Write kernel information */
+        fprintf(fp, "%5d%5d%5d", ekernels.isize, 
+            ekernels.jsize, ekernels.ksize);
+        fprintf(fp,"\n");
+
+        /* Boundaries in x-, -y and z-directions*/
+        for (int ix = 0; ix<=ekernels.isize; ix++) {
+            fprintf(fp, "%f ", (-0.5*ekernels.isize+ix)*dx);
+        }
+        fprintf(fp,"\n");
+        for (int jy = 0; jy<=ekernels.jsize; jy++) {
+            fprintf(fp, "%f ", (-0.5*ekernels.jsize+jy)*dy);
+        }
+        fprintf(fp,"\n");
+        for (int kz = 0; kz<=ekernels.ksize; kz++) {
+            fprintf(fp, "%f ", kz*dz);
+        }
+        fprintf(fp,"\n");   
+
+        /* Kernel dose data */        
+        for (int ir = 0; ir < size; ir++) {
+            irl = size*i + ir;   // skip to appropriate kernel
+            fprintf(fp, "%e ", ekernels.ndose[irl]);
+        } 
+        fprintf(fp, "\n");
+
+        /* Kernel dose uncertainty data */        
+        for (int ir = 0; ir < size; ir++) {
+            irl = size*i + ir;   // skip to appropriate kernel
+            fprintf(fp, "%f ", 0.01);
+        }       
+
+        fclose(fp);
+        free(file_name);
+    }
+    
+
+    return;
+}
+
+/******************************************************************************/
 /* omc_dosxyz main function */
 int main (int argc, char **argv) {
     
@@ -1176,6 +1337,9 @@ int main (int argc, char **argv) {
     /* Preparation of scoring struct */
     initScore();
 
+    /* Preparation of electron energy deposition kernels */
+    initEkernels();
+
     #pragma omp parallel
     {
       /* Initialize random number generator */
@@ -1195,6 +1359,7 @@ int main (int argc, char **argv) {
         listElectron();
         listMscat();
         listSpin();
+        listEkernels();
     }
     
     /* Shower call */
