@@ -1067,6 +1067,11 @@ void initHistory() {
 
 /******************************************************************************/
 /* Electron kernels definitions */
+
+/* It is expected that the following parameter to be true, however the user has 
+ the possibility to output the kernel in absolute dose if false */
+#define NORMKERNELS 1
+
 struct Ekernels {
     int nenergy;
     int isize;
@@ -1135,15 +1140,38 @@ void initEkernels() {
         ekernels.ndose[j] = 0.0;
     }
     
+    int irl; double totdose = 0.0;
     for (int i=1; i<ekernels.nenergy; i++) {
         for (int j=0; j<size; j++) {
-            fscanf(fp, "%lf", &ekernels.ndose[i*size + j]);
-            //printf("%e, ", ekernels.ndose[i*size + j]);
-        }        
+            irl = i*size + j;
+            fscanf(fp, "%lf", &ekernels.ndose[irl]);
+
+            /* Accumulate total dose in current kernel */
+            totdose += ekernels.ndose[irl];          
+        }
+
+        /* Normalize with respect to kernel energy */
+        if(NORMKERNELS == 1) {  // i.e. if true
+            for (int j=0; j<size; j++) {
+                irl = i*size + j;
+                ekernels.ndose[irl] /= totdose;      
+            }           
+        }    
+
         /* Skip the rest of the last line read before reading next kernel */
         fgets(buffer, BUFFER_SIZE, fp);
         //printf("\n");
+
+        if(verbose_flag) {
+            printf("Electron kernel energy: %2.1f\n", ekernels.energy[i]);
+            printf("\t Total dose in kernel: %e Gy/p\n", totdose);
+        }
+
+        /* Reset dose accumulator for next energy */
+        totdose = 0.0;
     }      
+
+    printf("Kernels normalized (1: true, 0: false): %d\n", NORMKERNELS);
 
     /* Close kernel file */
     fclose(fp);
@@ -1205,23 +1233,33 @@ void listEkernels() {
         }
         fprintf(fp,"\n");   
 
-        /* Kernel dose data */        
-        for (int ir = 0; ir < size; ir++) {
+        /* Kernel dose data */ 
+        for (int kz = 0; kz < ekernels.ksize; kz++) {
+            for (int jy = 0; jy < ekernels.jsize; jy++) {
+                for (int ix = 0; ix < ekernels.isize; ix++) {
+                    irl = size*i + ix + jy*ekernels.isize + 
+                        kz*ekernels.isize*ekernels.jsize;
+                    fprintf(fp, "%e ", ekernels.ndose[irl]);
+                }
+            }
+        }
+        fprintf(fp, "\n");
+               
+        /*for (int ir = 0; ir < size; ir++) {
             irl = size*i + ir;   // skip to appropriate kernel
             fprintf(fp, "%e ", ekernels.ndose[irl]);
         } 
-        fprintf(fp, "\n");
+        fprintf(fp, "\n");*/
 
         /* Kernel dose uncertainty data */        
         for (int ir = 0; ir < size; ir++) {
             irl = size*i + ir;   // skip to appropriate kernel
             fprintf(fp, "%f ", 0.01);
-        }       
+        }
 
         fclose(fp);
         free(file_name);
-    }
-    
+    }    
 
     return;
 }
