@@ -1264,6 +1264,23 @@ void listEkernels() {
     return;
 }
 
+void electronKernels() {
+
+    int np = stack.np;
+    int irl = stack.ir[np];
+    double endep = stack.e[np] - RM;
+        
+    /* Deposit electron energy on spot */
+    #pragma omp atomic
+    score.endep[irl] += endep;
+
+    /* Remove electron from stack */
+    np -= 1;
+    stack.np = np;
+    
+    return;
+}
+
 /******************************************************************************/
 /* omc_dosxyz main function */
 int main (int argc, char **argv) {
@@ -1454,7 +1471,13 @@ int main (int argc, char **argv) {
             initHistory();
             
             /* Start electromagnetic shower simulation */
-            shower();
+            while (stack.np >= 0) {
+                if (stack.iq[stack.np] == 0) {
+                    photon();
+                } else {
+                    electronKernels();
+                }
+            }
         }
         
         /* Accumulate results of current batch for statistical analysis */
