@@ -1269,10 +1269,59 @@ void electronKernels() {
     int np = stack.np;
     int irl = stack.ir[np];
     double endep = stack.e[np] - RM;
-        
-    /* Deposit electron energy on spot */
-    #pragma omp atomic
-    score.endep[irl] += endep;
+
+    /* We will deposit electron energy using the electron deposition kernels. 
+     For such task, we will first decode the i,j,k indices of current region */
+    int ix0 = (irl - 1) % geometry.isize;
+    int jy0 = ((irl - 1)/geometry.isize) % geometry.jsize;
+    int kz0 = (irl - 1)/(geometry.isize*geometry.jsize);
+
+    //printf("irl = %d, ix0 = %d, jy0 = %d, kz0 = %d\n", irl, ix0, jy0, kz0);
+
+    /* Select electron kernel, at this moment just choose the closest to 
+     current electron kinetic energy */
+    int e0 = 0;
+
+    /* Adjust energy to first decimal and then test to find proper kernel */
+    while (round(endep*10.0)/10.0 > ekernels.energy[e0]) {
+        e0 += 1;
+    }
+
+    /*printf("endep = %f, e0 = %d, energy[e0] = %f\n", endep, e0, 
+        ekernels.energy[e0]);*/
+
+    /* Loop through appropriate electron kernel and deposit energy in scoring 
+     array*/
+    int klim = floor(ekernels.ksize/2.0);
+    int jlim = floor(ekernels.jsize/2.0);
+    int ilim = floor(ekernels.isize/2.0);
+
+    //printf("ilim = %d, jlim = %d, klim = %d\n", ilim, jlim, klim);
+
+    int irdep; int ikdep;
+    int kernel_size = ekernels.isize*ekernels.jsize*ekernels.ksize;
+    int geom_size = geometry.isize*geometry.jsize*geometry.ksize;
+    for (int k = -klim; k <= klim; k++) {
+        for (int j = -jlim; j <= jlim; j++) {
+            for (int i = -ilim; i <= ilim; i++) {
+                irdep = 1 + ix0 + i;// +1 to not consider region outside phantom
+                irdep += (jy0 + j)*geometry.isize;
+                irdep += (kz0 + k)*geometry.isize*geometry.jsize;
+
+                if(irdep > 0 && irdep < geom_size) {                    
+                    /* Get coordinates in kernel space */
+                    ikdep = e0*kernel_size; // select kernel
+                    ikdep += (i+ilim) + (j+jlim)*ekernels.isize + 
+                        (k+klim)*ekernels.isize*ekernels.jsize;
+                    
+                    /* Deposit electron energy on spot */
+                    #pragma omp atomic
+                    score.endep[irdep] += ekernels.ndose[ikdep]*endep;
+                }          
+            }            
+        }        
+    }
+    //printf("\n");
 
     /* Remove electron from stack */
     np -= 1;
