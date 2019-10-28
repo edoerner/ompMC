@@ -1292,7 +1292,7 @@ void electronKernels() {
 
     /* Loop through appropriate electron kernel and deposit energy in scoring 
      array*/
-    int klim = floor(ekernels.ksize/2.0);
+    int klim = ekernels.ksize;  // in z deposition is not centered
     int jlim = floor(ekernels.jsize/2.0);
     int ilim = floor(ekernels.isize/2.0);
 
@@ -1301,7 +1301,7 @@ void electronKernels() {
     int irdep; int ikdep;
     int kernel_size = ekernels.isize*ekernels.jsize*ekernels.ksize;
     int geom_size = geometry.isize*geometry.jsize*geometry.ksize;
-    for (int k = -klim; k <= klim; k++) {
+    for (int k = 0; k < klim; k++) {
         for (int j = -jlim; j <= jlim; j++) {
             for (int i = -ilim; i <= ilim; i++) {
                 irdep = 1 + ix0 + i;// +1 to not consider region outside phantom
