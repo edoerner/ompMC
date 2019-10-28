@@ -6,4 +6,4 @@ xmgr_script
 *.lst
 .vscode
 *.out
-*.o
+*.pdf
