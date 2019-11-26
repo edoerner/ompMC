@@ -24,7 +24,7 @@ CC = gcc
 CFLAGS = -lm
 
 # The build target executable:
-TARGET = $(UCODE).out
+TARGET = $(UCODE).exe
 
 all: $(TARGET)
 
