@@ -21,10 +21,10 @@ SOURCES = $(UCODE).c ../../src/ompmc.c
 CC = gcc
 
 # Compiler flags:
-CFLAGS = -lm -fopenmp
+CFLAGS = -lm
 
 # The build target executable:
-TARGET = $(UCODE).out
+TARGET = $(UCODE).exe
 
 all: $(TARGET)
 
