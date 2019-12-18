@@ -7,3 +7,5 @@ xmgr_script
 .vscode
 *.out
 *.o
+*.exe
+*.pdf

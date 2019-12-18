@@ -20,11 +20,10 @@ SOURCES = $(UCODE).c ../../src/ompmc.c
 # C compiler:
 CC = gcc
 
-# Compiler flags:
-CFLAGS = -lm -O2 -mtune=native -fopenmp
+CFLAGS = -lm
 
 # The build target executable:
-TARGET = $(UCODE).out
+TARGET = $(UCODE).exe
 
 all: $(TARGET)
 
