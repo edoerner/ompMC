@@ -22,6 +22,7 @@ CC = gcc
 
 # Compiler flags:
 CFLAGS = -lm -O2 -mtune=native -fopenmp
+# CFLAGS = -lm -O2 -mtune=native
 
 # The build target executable:
 TARGET = $(UCODE).out
