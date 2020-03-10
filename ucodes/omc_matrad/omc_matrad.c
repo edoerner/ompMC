@@ -121,6 +121,18 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
         tmp = mxArrayToString(tmp2);        
         strcpy(input_items[nInput].value,tmp);
     }
+    
+    nInput++; /* Get splitting factor */
+    sprintf(input_items[nInput].key,"nsplit");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"nSplit");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
 
     nInput++;
     sprintf(input_items[nInput].key,"spectrum file");
@@ -693,6 +705,10 @@ void initSource() {
     
     tmp_fieldpointer = mxGetField(mcSrc,0,"iBeam");
     const double* iBeamPerBeamlet = mxGetPr(tmp_fieldpointer);
+    
+    /* Parse data of nsplit */ 
+//     tmpFieldPointer = mxGetField(mcOpt,0,"nSplit");
+//     int nsplit = (unsigned int) mxGetScalar(tmpFieldPointer);
     
     source.ibeam = (int*) malloc(source.nbeamlets*sizeof(int));
     for(int i=0; i<source.nbeamlets; i++) {
@@ -1286,6 +1302,9 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     /* Initialize data on a region-by-region basis */
     initRegions();
     
+    /* Initialize VRT data */
+    initVrtMex();
+    
     /* Preparation of scoring struct */
     initScore();
 
@@ -1295,13 +1314,12 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
       initRandom();
 
       /* Initialize particle stack */
-
       initStack();
     }
 
     /* Shower call */
     
-    /* Get number of histories and statistical batches */
+    /* Get number of histories, statistical batches and splitting factor */
     char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "ncase") != 1) {
         mexPrintf("Can not find 'ncase' key on input file.\n");
@@ -1315,6 +1333,19 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     }
     int nbatch = atoi(buffer);
     
+//     if (getInputValue(buffer, "nsplit") != 1) {
+//         mexPrintf("Can not find 'nsplit' key on input file.\n");
+//         exit(EXIT_FAILURE);
+//     }
+//     int nsplit = atoi(buffer);
+/*    vrt.nsplit = atoi(buffer);
+    if(vrt.nsplit > 1) {
+        printf("Photon splitting enabled, nsplit = %d\n", vrt.nsplit);
+    }
+    else {
+        printf("Photon splitting disabled\n");
+    } */  
+    
     if (nhist/nbatch == 0) {
         nhist = nbatch;
     }
@@ -1327,6 +1358,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     mexPrintf("Total number of particle histories: %d\n", nhist);
     mexPrintf("Number of statistical batches: %d\n", nbatch);
     mexPrintf("Histories per batch: %d\n", nperbatch);
+//     mexPrintf("Photon splitting enabled. Splitting factor: %d\n", nsplit);
 
     if (getInputValue(buffer, "relative dose threshold") != 1) {
         mexPrintf("Can not find 'relative dose threshold' key on input file.\n");
