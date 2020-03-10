@@ -40,9 +40,9 @@
 
 #define exit(EXIT_FAILURE) mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:invalid","Abort.");
 
-/* The ompmc source file is included instead of the header, because of the 
-redefinition of printf function */
-#include "ompmc.c"
+#include "omc_utilities.h"
+#include "ompmc.h"
+#include "omc_random.h"
 
 #include <ctype.h>
 #include <float.h>

@@ -4,7 +4,7 @@
  ompMC - An OpenMP parallel implementation for Monte Carlo particle transport
  simulations
  
- Copyright (C) 2018 Edgardo Doerner (edoerner@fis.puc.cl)
+ Copyright (C) 2020 Edgardo Doerner (edoerner@fis.puc.cl)
 
 
  This program is free software: you can redistribute it and/or modify
@@ -29,103 +29,6 @@
 #ifndef M_PI
     #define M_PI 3.14159265358979323846
 #endif
-
-/* Flag set by '--verbose' argument */
-extern int verbose_flag;
-
-/******************************************************************************/
-/* Timing utilities. If OpenMP is enabled it calculates the wall time through 
- omp_get_wtime() function. Otherwise, it calculates CPU time through the clock() 
- function, available in time.h library. */
-
-double omc_get_time();
-/******************************************************************************/
-
-/******************************************************************************/
-/* A simple C/C++ class to parse input files and return requested key value 
-https://github.com/bmaynard/iniReader */
-
-#define BUFFER_SIZE 256
-#define INPUT_PAIRS 80
-#define INPUT_EXT ".inp"  // extension of input files
-
-/* Parse a configuration file */
-extern void parseInputFile(char *file_name);
-
-/* Copy the value of the selected input item to the char pointer */
-extern int getInputValue(char *dest, char *key);
-
-/* Returns nonzero if line is a string containing only whitespace or is empty */
-extern int lineBlack(char *line);
-
-/* Remove white spaces from string str_untrimmed and saves the results in
- str_trimmed. Useful for string input values, such as file names */
-extern void removeSpaces(char* str_trimmed, const char* str_untrimmed);
-
-struct inputItems {
-    char key[BUFFER_SIZE];
-    char value[BUFFER_SIZE];
-};
-
-extern struct inputItems input_items[];     // key,value pairs
-extern int input_idx;                       // number of key,value pair
-
-/******************************************************************************/
-
-/*******************************************************************************
-* Implementation, based on the EGSnrc one, of the RANMAR random number 
-* generator (RNG), proposed by Marsaglia and Zaman. 
-* 
-* Following the EGSnrc implementation, it uses integers to store the state of 
-* the RNG and to generate the next number in the sequence. Only at the end the 
-* random numbers are converted to floating point numbers, due to performance 
-* reasons. 
-* 
-* Before using the RNG, it is needed to initialize the RNG by a call to 
-* initRandom(). 
-*******************************************************************************/
-
-#define NRANDOM 128     // number of random numbers generated in each call 
-                        // to setRandom().
-
-struct Random {
-    int crndm;
-    int cdrndm;
-    int cmrndm;
-    int ixx;
-    int jxx;
-    int rng_seed;
-    int *urndm;
-    int *rng_array;
-    double twom24;
-};
-
-#if defined(_MSC_VER)
-	/* use __declspec(thread) instead of threadprivate to avoid
-	error C3053. More information in:
-	https://stackoverflow.com/questions/12560243/using-threadprivate-directive-in-visual-studio */
-	extern __declspec(thread) struct Random rng;
-#else
-	extern struct Random rng;
-	#pragma omp threadprivate(rng)
-#endif
-
-/* Initialization function for the RANMAR random number generator (RNG) 
-proposed by Marsaglia and Zaman and adapted from the EGSnrc version to be 
-used in ompMC. */
-extern void initRandom(void);
-
-/* Generation function for the RANMAR random number generator (RNG) proposed 
-by Marsaglia and Zaman. It generates NRANDOM floating point numbers in 
-each call */
-extern void getRandom(void);
-
-/* Get a single floating random number in [0,1) using the RANMAR RNG */
-extern double setRandom(void);
-
-extern void cleanRandom(void);
-
-/******************************************************************************/
 
 /*******************************************************************************
 * User code definitions. The following functions must be provided by the user
