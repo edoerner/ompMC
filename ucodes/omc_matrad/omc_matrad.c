@@ -706,10 +706,6 @@ void initSource() {
     tmp_fieldpointer = mxGetField(mcSrc,0,"iBeam");
     const double* iBeamPerBeamlet = mxGetPr(tmp_fieldpointer);
     
-    /* Parse data of nsplit */ 
-//     tmpFieldPointer = mxGetField(mcOpt,0,"nSplit");
-//     int nsplit = (unsigned int) mxGetScalar(tmpFieldPointer);
-    
     source.ibeam = (int*) malloc(source.nbeamlets*sizeof(int));
     for(int i=0; i<source.nbeamlets; i++) {
         source.ibeam[i] = (int) iBeamPerBeamlet[i] - 1; // C indexing style
@@ -1331,20 +1327,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
         mexPrintf("Can not find 'nbatch' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    int nbatch = atoi(buffer);
-    
-//     if (getInputValue(buffer, "nsplit") != 1) {
-//         mexPrintf("Can not find 'nsplit' key on input file.\n");
-//         exit(EXIT_FAILURE);
-//     }
-//     int nsplit = atoi(buffer);
-/*    vrt.nsplit = atoi(buffer);
-    if(vrt.nsplit > 1) {
-        printf("Photon splitting enabled, nsplit = %d\n", vrt.nsplit);
-    }
-    else {
-        printf("Photon splitting disabled\n");
-    } */  
+    int nbatch = atoi(buffer); 
     
     if (nhist/nbatch == 0) {
         nhist = nbatch;
@@ -1358,7 +1341,6 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     mexPrintf("Total number of particle histories: %d\n", nhist);
     mexPrintf("Number of statistical batches: %d\n", nbatch);
     mexPrintf("Histories per batch: %d\n", nperbatch);
-//     mexPrintf("Photon splitting enabled. Splitting factor: %d\n", nsplit);
 
     if (getInputValue(buffer, "relative dose threshold") != 1) {
         mexPrintf("Can not find 'relative dose threshold' key on input file.\n");
