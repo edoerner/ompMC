@@ -5980,24 +5980,4 @@ void initVrt(void) {
     return;
 }
 
-void initVrtMex(void) {
-
-    char buffer[BUFFER_SIZE];
-
-    /* Get nsplit parameter, it decides if photon splitting is enabled */
-    if (getInputValue(buffer, "nsplit") != 1) {
-        mexPrintf("Can not find 'nsplit' key on input file.\n");
-        exit(EXIT_FAILURE);
-    }
-    vrt.nsplit = atoi(buffer);
-    if(vrt.nsplit > 1) {
-        mexPrintf("Photon splitting enabled, nsplit = %d\n", vrt.nsplit);
-    }
-    else {
-        mexPrintf("Photon splitting disabled\n");
-    }    
-
-    return;
-}
-
 /******************************************************************************/

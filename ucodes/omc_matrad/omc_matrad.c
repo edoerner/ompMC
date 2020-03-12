@@ -1299,7 +1299,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     initRegions();
     
     /* Initialize VRT data */
-    initVrtMex();
+    initVrt();
     
     /* Preparation of scoring struct */
     initScore();

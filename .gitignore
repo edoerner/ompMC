@@ -1,0 +1,11 @@
+.DS_Store
+*.3ddose
+*.agr
+files
+xmgr_script
+*.lst
+.vscode
+*.out
+*.o
+*.exe
+*.pdf
