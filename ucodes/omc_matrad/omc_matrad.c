@@ -121,6 +121,18 @@ void parseInput(int nrhs, const mxArray *prhs[]) {
         tmp = mxArrayToString(tmp2);        
         strcpy(input_items[nInput].value,tmp);
     }
+    
+    nInput++; /* Get splitting factor */
+    sprintf(input_items[nInput].key,"nsplit");
+    tmp_fieldpointer = mxGetField(mcOpt,0,"nSplit");
+    status = mexCallMATLAB(1, &tmp2, 1,  &tmp_fieldpointer, "num2str");    
+    if (status != 0)
+        mexErrMsgIdAndTxt( "matRad:matRad_ompInterface:Error","Call to num2str not successful");
+    else
+    {
+        tmp = mxArrayToString(tmp2);        
+        strcpy(input_items[nInput].value,tmp);
+    }
 
     nInput++;
     sprintf(input_items[nInput].key,"spectrum file");
@@ -1286,6 +1298,9 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
     /* Initialize data on a region-by-region basis */
     initRegions();
     
+    /* Initialize VRT data */
+    initVrtMex();
+    
     /* Preparation of scoring struct */
     initScore();
 
@@ -1295,13 +1310,12 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
       initRandom();
 
       /* Initialize particle stack */
-
       initStack();
     }
 
     /* Shower call */
     
-    /* Get number of histories and statistical batches */
+    /* Get number of histories, statistical batches and splitting factor */
     char buffer[BUFFER_SIZE];
     if (getInputValue(buffer, "ncase") != 1) {
         mexPrintf("Can not find 'ncase' key on input file.\n");
@@ -1313,7 +1327,7 @@ void mexFunction (int nlhs, mxArray *plhs[],    // output of the function
         mexPrintf("Can not find 'nbatch' key on input file.\n");
         exit(EXIT_FAILURE);
     }
-    int nbatch = atoi(buffer);
+    int nbatch = atoi(buffer); 
     
     if (nhist/nbatch == 0) {
         nhist = nbatch;
