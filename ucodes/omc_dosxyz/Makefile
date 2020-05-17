@@ -15,18 +15,15 @@ UCODE = omc_dosxyz
 INCLUDES = -I../../src
 
 # Source files
-SOURCES = $(UCODE).c ../../src/ompmc.c
+SOURCES = $(UCODE).c ../../src/ompmc.c \
+	  ../../src/omc_utilities.c \
+	  ../../src/omc_random.c
 
 # C compiler:
 CC = gcc
 
-<<<<<<< HEAD
 # Compiler flags:
 CFLAGS = -lm -O2 -mtune=native -fopenmp
-# CFLAGS = -lm -O2 -mtune=native
-=======
-CFLAGS = -lm
->>>>>>> fb80187a6d2df1ae02643a4932d8d06c2a64da33
 
 # The build target executable:
 TARGET = $(UCODE).exe

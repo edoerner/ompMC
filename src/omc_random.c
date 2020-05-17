@@ -31,9 +31,15 @@
 * initRandom(). 
 *******************************************************************************/
 
-#include "omc_random.h"
+#ifdef _OPENMP
+    #include <omp.h>
+#endif
 
 #include <stdlib.h>
+#include <stdio.h>
+
+#include "omc_random.h"
+#include "omc_utilities.h"
 
 /* Common functions and definitions */
 #if defined(_MSC_VER)

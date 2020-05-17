@@ -24,8 +24,6 @@
  geometries.  
 *****************************************************************************/
 
-#include "ompmc.h"
-
 #include <ctype.h>
 #include <math.h>
 #include <stdio.h>
@@ -35,6 +33,10 @@
 #ifdef _OPENMP
     #include <omp.h>
 #endif
+
+#include "omc_utilities.h"
+#include "ompmc.h"
+#include "omc_random.h"
 
 /******************************************************************************/
 /* Parsing program options with getopt long
